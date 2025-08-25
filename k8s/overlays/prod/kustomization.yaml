@@ -1,0 +1,79 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: dreamscape-production
+
+namespace: dreamscape-prod
+
+resources:
+- ../../base/auth
+- ../../base/gateway
+- ../../base/user
+- ../../base/voyage
+- ../../base/common
+
+patchesStrategicMerge:
+- auth-patch.yaml
+- gateway-patch.yaml
+- user-patch.yaml
+- voyage-patch.yaml
+
+configMapGenerator:
+- name: environment-config
+  literals:
+  - ENVIRONMENT=production
+  - LOG_LEVEL=warn
+  - ENABLE_METRICS=true
+  - ENABLE_TRACING=false
+
+images:
+- name: ghcr.io/dreamscape/auth
+  newTag: main
+- name: ghcr.io/dreamscape/gateway
+  newTag: main
+- name: ghcr.io/dreamscape/user
+  newTag: main
+- name: ghcr.io/dreamscape/voyage
+  newTag: main
+
+replicas:
+- name: auth-service
+  count: 3
+- name: gateway-service
+  count: 5
+- name: user-service
+  count: 3
+- name: voyage-service
+  count: 3
+
+commonLabels:
+  environment: production
+  version: main
+
+patches:
+- target:
+    kind: HorizontalPodAutoscaler
+  patch: |-
+    - op: replace
+      path: /spec/maxReplicas
+      value: 20
+    - op: replace
+      path: /spec/metrics/0/resource/target/averageUtilization
+      value: 60
+
+- target:
+    kind: Deployment
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/memory
+      value: 512Mi
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: 500m
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: 1Gi
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/cpu
+      value: 1000m

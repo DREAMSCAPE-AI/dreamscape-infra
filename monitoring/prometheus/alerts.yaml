@@ -1,0 +1,268 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dreamscape-alerts
+  namespace: monitoring
+  labels:
+    app: dreamscape-prometheus
+    release: dreamscape-monitoring
+spec:
+  groups:
+  - name: dreamscape.services
+    rules:
+    # Service availability alerts
+    - alert: DreamScapeServiceDown
+      expr: up{job=~"dreamscape-.*"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: availability
+      annotations:
+        summary: "DreamScape service {{ $labels.job }} is down"
+        description: "Service {{ $labels.job }} in namespace {{ $labels.namespace }} has been down for more than 1 minute."
+        runbook_url: "https://docs.dreamscape.com/runbooks/service-down"
+    
+    # High error rate alerts
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        category: performance
+      annotations:
+        summary: "High error rate detected for {{ $labels.service }}"
+        description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+        runbook_url: "https://docs.dreamscape.com/runbooks/high-error-rate"
+    
+    # Critical error rate
+    - alert: CriticalErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.20
+      for: 2m
+      labels:
+        severity: critical
+        category: performance
+      annotations:
+        summary: "Critical error rate for {{ $labels.service }}"
+        description: "Error rate is {{ $value | humanizePercentage }} for service {{ $labels.service }}"
+        runbook_url: "https://docs.dreamscape.com/runbooks/critical-error-rate"
+    
+    # High response time
+    - alert: HighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1.0
+      for: 10m
+      labels:
+        severity: warning
+        category: performance
+      annotations:
+        summary: "High response time for {{ $labels.service }}"
+        description: "95th percentile response time is {{ $value }}s for service {{ $labels.service }}"
+        runbook_url: "https://docs.dreamscape.com/runbooks/high-response-time"
+
+  - name: dreamscape.infrastructure
+    rules:
+    # High CPU usage
+    - alert: HighCPUUsage
+      expr: (100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 85
+      for: 15m
+      labels:
+        severity: warning
+        category: resource
+      annotations:
+        summary: "High CPU usage on {{ $labels.instance }}"
+        description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+        runbook_url: "https://docs.dreamscape.com/runbooks/high-cpu"
+    
+    # High memory usage
+    - alert: HighMemoryUsage
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+      for: 10m
+      labels:
+        severity: warning
+        category: resource
+      annotations:
+        summary: "High memory usage on {{ $labels.instance }}"
+        description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+        runbook_url: "https://docs.dreamscape.com/runbooks/high-memory"
+    
+    # Disk space alert
+    - alert: DiskSpaceLow
+      expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+      for: 5m
+      labels:
+        severity: warning
+        category: resource
+      annotations:
+        summary: "Low disk space on {{ $labels.instance }}"
+        description: "Disk {{ $labels.mountpoint }} has {{ $value }}% space remaining"
+        runbook_url: "https://docs.dreamscape.com/runbooks/low-disk-space"
+    
+    # Critical disk space
+    - alert: DiskSpaceCritical
+      expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 5
+      for: 1m
+      labels:
+        severity: critical
+        category: resource
+      annotations:
+        summary: "Critical disk space on {{ $labels.instance }}"
+        description: "Disk {{ $labels.mountpoint }} has only {{ $value }}% space remaining"
+        runbook_url: "https://docs.dreamscape.com/runbooks/critical-disk-space"
+
+  - name: dreamscape.kubernetes
+    rules:
+    # Pod restart alerts
+    - alert: PodRestartingTooMuch
+      expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+      for: 0m
+      labels:
+        severity: warning
+        category: stability
+      annotations:
+        summary: "Pod {{ $labels.pod }} is restarting too frequently"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last hour"
+        runbook_url: "https://docs.dreamscape.com/runbooks/pod-restarts"
+    
+    # Pod crash loop
+    - alert: PodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
+      for: 15m
+      labels:
+        severity: critical
+        category: stability
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is crash looping"
+        runbook_url: "https://docs.dreamscape.com/runbooks/crash-loop"
+    
+    # Pod not ready
+    - alert: PodNotReady
+      expr: kube_pod_status_ready{condition="false"} == 1
+      for: 15m
+      labels:
+        severity: warning
+        category: availability
+      annotations:
+        summary: "Pod {{ $labels.pod }} is not ready"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been not ready for more than 15 minutes"
+        runbook_url: "https://docs.dreamscape.com/runbooks/pod-not-ready"
+    
+    # Deployment replicas mismatch
+    - alert: DeploymentReplicasMismatch
+      expr: kube_deployment_spec_replicas != kube_deployment_status_replicas_available
+      for: 15m
+      labels:
+        severity: warning
+        category: availability
+      annotations:
+        summary: "Deployment {{ $labels.deployment }} has replica mismatch"
+        description: "Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has {{ $labels.spec_replicas }} desired but {{ $labels.available_replicas }} available"
+        runbook_url: "https://docs.dreamscape.com/runbooks/replica-mismatch"
+
+  - name: dreamscape.ai-services
+    rules:
+    # AI service specific alerts
+    - alert: AIRecommendationLatencyHigh
+      expr: histogram_quantile(0.95, rate(voyage_ai_recommendation_duration_seconds_bucket[5m])) > 3.0
+      for: 10m
+      labels:
+        severity: warning
+        category: ai-performance
+        service: voyage
+      annotations:
+        summary: "AI recommendation latency is high"
+        description: "95th percentile AI recommendation latency is {{ $value }}s"
+        runbook_url: "https://docs.dreamscape.com/runbooks/ai-latency"
+    
+    - alert: AIServiceTokensExhausted
+      expr: openai_tokens_remaining < 1000
+      for: 0m
+      labels:
+        severity: critical
+        category: ai-resources
+      annotations:
+        summary: "OpenAI API tokens running low"
+        description: "Only {{ $value }} OpenAI tokens remaining"
+        runbook_url: "https://docs.dreamscape.com/runbooks/ai-tokens"
+    
+    - alert: Content360ProcessingFailed
+      expr: increase(voyage_360_content_processing_failures_total[15m]) > 5
+      for: 0m
+      labels:
+        severity: warning
+        category: content-processing
+        service: voyage
+      annotations:
+        summary: "360° content processing failures detected"
+        description: "{{ $value }} 360° content processing failures in the last 15 minutes"
+        runbook_url: "https://docs.dreamscape.com/runbooks/360-processing"
+
+  - name: dreamscape.databases
+    rules:
+    # PostgreSQL alerts
+    - alert: PostgreSQLDown
+      expr: pg_up == 0
+      for: 5m
+      labels:
+        severity: critical
+        category: database
+      annotations:
+        summary: "PostgreSQL is down"
+        description: "PostgreSQL instance {{ $labels.instance }} is down"
+        runbook_url: "https://docs.dreamscape.com/runbooks/postgresql-down"
+    
+    - alert: PostgreSQLHighConnections
+      expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+        category: database
+      annotations:
+        summary: "PostgreSQL connection usage is high"
+        description: "PostgreSQL connection usage is {{ $value }}%"
+        runbook_url: "https://docs.dreamscape.com/runbooks/postgresql-connections"
+    
+    # MongoDB alerts
+    - alert: MongoDBDown
+      expr: mongodb_up == 0
+      for: 5m
+      labels:
+        severity: critical
+        category: database
+      annotations:
+        summary: "MongoDB is down"
+        description: "MongoDB instance {{ $labels.instance }} is down"
+        runbook_url: "https://docs.dreamscape.com/runbooks/mongodb-down"
+    
+    - alert: MongoDBReplicationLag
+      expr: mongodb_replset_member_replication_lag_seconds > 60
+      for: 15m
+      labels:
+        severity: warning
+        category: database
+      annotations:
+        summary: "MongoDB replication lag is high"
+        description: "MongoDB replication lag is {{ $value }}s"
+        runbook_url: "https://docs.dreamscape.com/runbooks/mongodb-replication"
+    
+    # Redis alerts
+    - alert: RedisDown
+      expr: redis_up == 0
+      for: 5m
+      labels:
+        severity: critical
+        category: cache
+      annotations:
+        summary: "Redis is down"
+        description: "Redis instance {{ $labels.instance }} is down"
+        runbook_url: "https://docs.dreamscape.com/runbooks/redis-down"
+    
+    - alert: RedisHighMemoryUsage
+      expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 90
+      for: 15m
+      labels:
+        severity: warning
+        category: cache
+      annotations:
+        summary: "Redis memory usage is high"
+        description: "Redis memory usage is {{ $value }}%"
+        runbook_url: "https://docs.dreamscape.com/runbooks/redis-memory"

@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+*/node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+
+# Environment files
+.env
+.env.local
+*.pem
+*.key
+.secrets/
+
+# Kubernetes
+*.kubeconfig
+kubeconfig*
+
+# Docker
+.dockerignore
+
+# Build outputs
+dist/
+build/
+
+# Logs
+logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+.temp/
+.tmp/
+
+# SSL Certificates
+*.crt
+*.cer
+*.ca-bundle
+*.p7b
+*.p7s
+*.pfx
+*.p12

@@ -1,0 +1,70 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: dreamscape-dev
+
+namespace: dreamscape-dev
+
+resources:
+- ../../base/auth
+- ../../base/gateway
+- ../../base/user
+- ../../base/voyage
+- ../../base/common
+
+patchesStrategicMerge:
+- auth-patch.yaml
+- gateway-patch.yaml
+- user-patch.yaml
+- voyage-patch.yaml
+
+configMapGenerator:
+- name: environment-config
+  literals:
+  - ENVIRONMENT=development
+  - LOG_LEVEL=debug
+  - ENABLE_METRICS=true
+  - ENABLE_TRACING=true
+
+secretGenerator:
+- name: common-secrets
+  literals:
+  - jwt-secret=dev-jwt-secret-change-me
+  - redis-url=redis://redis-service:6379
+
+images:
+- name: ghcr.io/dreamscape/auth
+  newTag: develop
+- name: ghcr.io/dreamscape/gateway
+  newTag: develop
+- name: ghcr.io/dreamscape/user
+  newTag: develop
+- name: ghcr.io/dreamscape/voyage
+  newTag: develop
+
+replicas:
+- name: auth-service
+  count: 1
+- name: gateway-service
+  count: 1
+- name: user-service
+  count: 1
+- name: voyage-service
+  count: 1
+
+commonLabels:
+  environment: development
+  version: develop
+
+patches:
+- target:
+    kind: Ingress
+    name: gateway-ingress
+  patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: dev-api.dreamscape.com
+    - op: replace
+      path: /spec/tls/0/hosts/0
+      value: dev-api.dreamscape.com

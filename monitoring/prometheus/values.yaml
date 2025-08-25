@@ -1,0 +1,320 @@
+# Prometheus Configuration for DreamScape
+# Helm values for prometheus-community/kube-prometheus-stack
+
+nameOverride: "dreamscape-prometheus"
+fullnameOverride: "dreamscape-prometheus"
+
+# Global configuration
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+# Prometheus Server configuration
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    retentionSize: 50GB
+    replicas: 2
+    shards: 1
+    
+    # Resource requests and limits
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+    
+    # Storage configuration
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "oci-bv"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+    
+    # Additional scrape configs for DreamScape services
+    additionalScrapeConfigs:
+      - job_name: 'dreamscape-auth'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: auth-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'auth_.*'
+            target_label: service
+            replacement: 'auth'
+      
+      - job_name: 'dreamscape-gateway'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: gateway-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'gateway_.*'
+            target_label: service
+            replacement: 'gateway'
+      
+      - job_name: 'dreamscape-user'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: user-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'user_.*'
+            target_label: service
+            replacement: 'user'
+      
+      - job_name: 'dreamscape-voyage'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: voyage-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'voyage_.*'
+            target_label: service
+            replacement: 'voyage'
+    
+    # Rule files
+    ruleSelector:
+      matchLabels:
+        app: dreamscape-prometheus
+        release: dreamscape-monitoring
+
+# AlertManager configuration
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2
+    retention: 120h
+    
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 200m
+    
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "oci-bv"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    
+    # AlertManager configuration
+    config:
+      global:
+        smtp_smarthost: 'smtp.dreamscape.com:587'
+        smtp_from: 'alerts@dreamscape.com'
+        smtp_auth_username: 'alerts@dreamscape.com'
+        smtp_auth_password_file: '/etc/alertmanager/secrets/smtp-password'
+      
+      templates:
+        - '/etc/alertmanager/config/*.tmpl'
+      
+      route:
+        group_by: ['alertname', 'cluster', 'service']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'dreamscape-alerts'
+        routes:
+          - match:
+              severity: critical
+            receiver: 'critical-alerts'
+          - match:
+              service: 'voyage'
+            receiver: 'ai-service-alerts'
+      
+      receivers:
+        - name: 'dreamscape-alerts'
+          slack_configs:
+            - api_url_file: '/etc/alertmanager/secrets/slack-webhook'
+              channel: '#alerts'
+              title: 'DreamScape Alert - {{ .GroupLabels.alertname }}'
+              text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        
+        - name: 'critical-alerts'
+          slack_configs:
+            - api_url_file: '/etc/alertmanager/secrets/slack-webhook'
+              channel: '#critical-alerts'
+              title: '🚨 CRITICAL - {{ .GroupLabels.alertname }}'
+              text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+          email_configs:
+            - to: 'oncall@dreamscape.com'
+              subject: '🚨 DreamScape Critical Alert'
+              body: |
+                Alert: {{ .GroupLabels.alertname }}
+                {{ range .Alerts }}
+                Description: {{ .Annotations.description }}
+                Severity: {{ .Labels.severity }}
+                Environment: {{ .Labels.environment }}
+                Service: {{ .Labels.service }}
+                {{ end }}
+        
+        - name: 'ai-service-alerts'
+          slack_configs:
+            - api_url_file: '/etc/alertmanager/secrets/slack-webhook'
+              channel: '#ai-services'
+              title: '🤖 AI Service Alert - {{ .GroupLabels.alertname }}'
+              text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: "prom-operator" # Change this!
+  
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 500m
+  
+  persistence:
+    enabled: true
+    storageClassName: "oci-bv"
+    size: 20Gi
+  
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "https://grafana.dreamscape.com"
+    
+    security:
+      admin_user: admin
+      admin_password: "${GRAFANA_ADMIN_PASSWORD}"
+    
+    auth:
+      disable_login_form: false
+    
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    
+    dashboards:
+      default_home_dashboard_path: /var/lib/grafana/dashboards/dreamscape/overview.json
+  
+  # Data sources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://dreamscape-prometheus:9090
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy
+  
+  # Dashboard providers
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'dreamscape'
+          orgId: 1
+          folder: 'DreamScape'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/dreamscape
+  
+  # Sidecar for dashboard loading
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /var/lib/grafana/dashboards
+      folderAnnotation: grafana_folder
+      searchNamespace: ALL
+    
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      searchNamespace: ALL
+
+# Node Exporter
+nodeExporter:
+  enabled: true
+
+# kube-state-metrics
+kubeStateMetrics:
+  enabled: true
+
+# CoreDNS monitoring
+coreDns:
+  enabled: true
+  service:
+    port: 9153
+    targetPort: 9153
+
+# etcd monitoring
+kubeEtcd:
+  enabled: true
+
+# kube-controller-manager monitoring
+kubeControllerManager:
+  enabled: true
+
+# kube-proxy monitoring
+kubeProxy:
+  enabled: true
+
+# kube-scheduler monitoring
+kubeScheduler:
+  enabled: true
+
+# kubelet monitoring
+kubelet:
+  enabled: true
+  serviceMonitor:
+    metricRelabelings:
+      - sourceLabels: [__name__]
+        regex: 'kubelet_.*'
+        targetLabel: component
+        replacement: 'kubelet'

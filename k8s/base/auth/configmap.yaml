@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-config
+  labels:
+    app: auth-service
+    component: auth
+    part-of: dreamscape
+data:
+  LOG_LEVEL: "info"
+  SESSION_TIMEOUT: "3600"
+  PASSWORD_MIN_LENGTH: "8"
+  MAX_LOGIN_ATTEMPTS: "5"
+  LOCKOUT_DURATION: "900"
+  JWT_EXPIRES_IN: "1d"
+  REFRESH_TOKEN_EXPIRES_IN: "7d"
+  CORS_ORIGINS: "https://dreamscape.com,https://app.dreamscape.com"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "100"

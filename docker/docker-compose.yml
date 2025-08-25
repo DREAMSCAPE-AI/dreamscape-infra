@@ -1,0 +1,103 @@
+# Docker Compose Principal - DreamScape Microservices
+# Configuration de base pour le développement local
+
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7-jammy
+    container_name: dreamscape-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: dreamscape
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - dreamscape-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: dreamscape-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dreamscape-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Gateway Service
+  gateway:
+    build:
+      context: ./dreamscape-gateway
+      dockerfile: Dockerfile.simple
+    container_name: dreamscape-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "3100:3100"
+    environment:
+      - NODE_ENV=development
+      - AUTH_SERVICE_HOST=auth-service
+      - AUTH_SERVICE_PORT=3001
+      - USER_SERVICE_HOST=user-service
+      - USER_SERVICE_PORT=3002
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dreamscape-network
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "com.dreamscape.service=gateway"
+      - "com.dreamscape.version=1.0.0"
+      - "com.dreamscape.environment=development"
+
+volumes:
+  mongodb_data:
+    name: dreamscape_mongodb_data
+    driver: local
+  redis_data:
+    name: dreamscape_redis_data
+    driver: local
+
+networks:
+  dreamscape-network:
+    name: dreamscape-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Profils disponibles pour différents modes
+# 
+# Usage:
+#   docker-compose up                           # Services de base seulement
+#   docker-compose --profile dev up             # Services + Auth + User individuels
+#   docker-compose --profile core-pod up        # Services + Core Pod
+#   docker-compose --profile monitoring up      # + Monitoring stack

@@ -1,0 +1,131 @@
+# Multi-Service Core Pod Dockerfile with Supervisor
+# DR-336: INFRA-010.3 - Configuration Supervisor et Orchestration
+# Combines NGINX, Auth Service, and User Service in a single container
+
+# Stage 1: Build Auth Service
+FROM node:20-alpine AS auth-builder
+WORKDIR /app/auth
+COPY ../../auth-service/package*.json ./
+COPY ../../auth-service/tsconfig.json ./
+RUN npm ci --include=dev && npm cache clean --force
+COPY ../../auth-service/src/ ./src/
+COPY ../../auth-service/prisma/ ./prisma/
+RUN npx prisma generate && npm run build
+
+# Stage 2: Build User Service  
+FROM node:20-alpine AS user-builder
+WORKDIR /app/user
+COPY ../../user-service/package*.json ./
+COPY ../../user-service/tsconfig.json ./
+RUN npm ci --include=dev && npm cache clean --force
+COPY ../../user-service/src/ ./src/
+COPY ../../user-service/prisma/ ./prisma/
+RUN npx prisma generate && npm run build
+
+# Stage 3: Final Multi-Service Runtime
+FROM node:20-alpine AS runtime
+
+# Install system dependencies including Supervisor and Python
+RUN apk add --no-cache \
+    supervisor \
+    nginx \
+    python3 \
+    py3-pip \
+    py3-psutil \
+    curl \
+    dumb-init \
+    imagemagick \
+    file \
+    && apk upgrade --no-cache \
+    && rm -rf /var/cache/apk/*
+
+# Install Python packages for monitoring scripts
+RUN pip3 install --no-cache-dir supervisor psutil
+
+# Create directory structure
+WORKDIR /app
+RUN mkdir -p \
+    /app/auth \
+    /app/user \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /etc/supervisor/conf.d \
+    /run/supervisor
+
+# Create users
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Copy Auth Service built artifacts
+COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/node_modules /app/auth/node_modules
+COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/dist /app/auth/dist
+COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/prisma /app/auth/prisma
+COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/package.json /app/auth/
+
+# Copy User Service built artifacts
+COPY --from=user-builder --chown=nodejs:nodejs /app/user/node_modules /app/user/node_modules
+COPY --from=user-builder --chown=nodejs:nodejs /app/user/dist /app/user/dist
+COPY --from=user-builder --chown=nodejs:nodejs /app/user/prisma /app/user/prisma
+COPY --from=user-builder --chown=nodejs:nodejs /app/user/package.json /app/user/
+
+# Copy NGINX configuration from gateway
+COPY --chown=nginx:nginx ../../dreamscape-gateway/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY --chown=nginx:nginx ../../dreamscape-gateway/nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# Copy Supervisor configuration and scripts
+COPY --chown=root:root supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --chown=root:root scripts/ /app/scripts/
+
+# Make scripts executable
+RUN chmod +x /app/scripts/*.py
+
+# Create necessary directories with proper permissions
+RUN mkdir -p \
+    /app/auth/logs \
+    /app/user/logs \
+    /app/user/uploads \
+    /app/user/uploads/avatars \
+    /app/user/uploads/documents \
+    && chown -R nodejs:nodejs /app/auth /app/user \
+    && chown -R nginx:nginx /var/log/nginx \
+    && chown -R nginx:nginx /etc/nginx \
+    && chmod 755 /app/user/uploads
+
+# Copy entrypoint script
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports for all services
+EXPOSE 80 3001 3002
+
+# Environment variables
+ENV NODE_ENV=production \
+    SUPERVISOR_USER=admin \
+    SUPERVISOR_PASS=dreamscape_supervisor_123
+
+# Health check that verifies all services
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD python3 /app/scripts/core_pod_health_check.py
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "/usr/local/bin/entrypoint.sh"]
+
+# Start Supervisor as the main process
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
+# Metadata labels
+LABEL maintainer="DreamScape Team <dev@dreamscape.com>" \
+      version="1.0.0" \
+      description="DreamScape Core Pod - Multi-service container with NGINX, Auth, and User services" \
+      org.opencontainers.image.source="https://github.com/DREAMSCAPE-AI/dreamscape-core-pod" \
+      org.opencontainers.image.title="DreamScape Core Pod" \
+      org.opencontainers.image.description="Supervisor-orchestrated container with NGINX reverse proxy and Node.js microservices" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.vendor="DreamScape"
+
+# Build optimization metadata
+LABEL supervisor.managed="true" \
+      processes="nginx,auth-service,user-service,health-checker" \
+      architecture="multi-process-container" \
+      orchestration="supervisor"

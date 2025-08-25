@@ -1,0 +1,97 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - htop
+  - net-tools
+  - unzip
+
+write_files:
+  - path: /etc/rancher/k3s/config.yaml
+    content: |
+      cluster-init: ${is_first}
+      token: "${k3s_token}"
+      disable:
+        - traefik
+        - servicelb
+      cluster-cidr: "10.42.0.0/16"
+      service-cidr: "10.43.0.0/16"
+      kube-controller-manager-arg:
+        - "bind-address=0.0.0.0"
+      kube-proxy-arg:
+        - "metrics-bind-address=0.0.0.0"
+      kube-scheduler-arg:
+        - "bind-address=0.0.0.0"
+      kubelet-arg:
+        - "cloud-provider=external"
+      node-label:
+        - "node.dreamscape.com/role=server"
+        - "node.dreamscape.com/environment=${cluster_name}"
+      node-taint:
+        - "CriticalAddonsOnly=true:NoExecute"
+    permissions: '0644'
+    owner: root:root
+
+  - path: /usr/local/bin/install-k3s.sh
+    content: |
+      #!/bin/bash
+      set -e
+      
+      echo "Installing K3s server..."
+      curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="v1.28.5+k3s1" sh -s - server
+      
+      echo "Waiting for K3s to be ready..."
+      until kubectl get nodes; do
+        echo "Waiting for K3s..."
+        sleep 10
+      done
+      
+      echo "Installing Helm..."
+      curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      
+      echo "Adding Helm repositories..."
+      helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      helm repo add cert-manager https://charts.jetstack.io
+      helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      helm repo update
+      
+      echo "Installing NGINX Ingress Controller..."
+      helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+        --namespace ingress-nginx \
+        --create-namespace \
+        --set controller.service.type=LoadBalancer \
+        --set controller.metrics.enabled=true \
+        --set controller.podAnnotations."prometheus\.io/scrape"=true \
+        --set controller.podAnnotations."prometheus\.io/port"=10254
+      
+      echo "Installing cert-manager..."
+      kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.3/cert-manager.crds.yaml
+      helm upgrade --install cert-manager cert-manager/cert-manager \
+        --namespace cert-manager \
+        --create-namespace \
+        --version v1.13.3
+      
+      echo "Creating DreamScape namespaces..."
+      kubectl create namespace dreamscape-dev --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create namespace dreamscape-staging --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create namespace dreamscape-prod --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+      
+      echo "Labeling namespaces..."
+      kubectl label namespace dreamscape-dev environment=development --overwrite
+      kubectl label namespace dreamscape-staging environment=staging --overwrite
+      kubectl label namespace dreamscape-prod environment=production --overwrite
+      kubectl label namespace monitoring app=monitoring --overwrite
+      
+      echo "K3s server installation complete!"
+    permissions: '0755'
+    owner: root:root
+
+runcmd:
+  - /usr/local/bin/install-k3s.sh > /var/log/k3s-install.log 2>&1
+
+final_message: "K3s server node ${node_index} installation completed successfully!"
