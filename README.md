@@ -21,7 +21,7 @@ DreamScape utilise une approche **hybride révolutionnaire** :
 ## 📁 Structure Infrastructure
 
 - **docker/** - Configurations Docker & compose files
-- **k8s/** - Manifests Kubernetes & orchestration
+- **k3s/** - Manifests Kubernetes & orchestration
 - **terraform/** - Infrastructure as Code (IaC)
 - **monitoring/** - Prometheus, Grafana, observabilité
 - **scripts/** - Scripts déploiement & automation
@@ -36,8 +36,8 @@ DreamScape utilise une approche **hybride révolutionnaire** :
 - **Registry** - GitHub Container Registry
 
 ### **Orchestration**
-- **Kubernetes (K8s)** - Orchestration production
-- **Helm Charts** - Package management K8s
+- **Kubernetes (k3s)** - Orchestration production
+- **Helm Charts** - Package management k3s
 - **Ingress Controllers** - Traffic routing
 - **Service Mesh** - Communication sécurisée
 
@@ -105,8 +105,8 @@ Infrastructure Partagée
 
 ### Déploiement Kubernetes
 ```bash
-# Déploiement K8s
-cd k8s && kubectl apply -f .
+# Déploiement k3s
+cd k3s && kubectl apply -f .
 
 # Vérification pods
 kubectl get pods -n dreamscape
@@ -203,7 +203,7 @@ kubectl create namespace dreamscape-prod
 
 ### **Resource Structure**
 ```
-k8s/
+k3s/
 ├── base/                    # Base configurations
 │   ├── auth/
 │   │   ├── deployment.yaml
@@ -229,9 +229,9 @@ k8s/
 ### **Deployment Commands**
 ```bash
 # Deploy specific environment
-kubectl apply -k k8s/overlays/dev
-kubectl apply -k k8s/overlays/staging
-kubectl apply -k k8s/overlays/prod
+kubectl apply -k k3s/overlays/dev
+kubectl apply -k k3s/overlays/staging
+kubectl apply -k k3s/overlays/prod
 
 # Rolling updates
 kubectl rollout restart deployment/auth-service -n dreamscape
@@ -352,8 +352,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Deploy to K8s
-        run: kubectl apply -k k8s/overlays/prod
+      - name: Deploy to k3s
+        run: kubectl apply -k k3s/overlays/prod
 ```
 
 ### **Deployment Strategies**
@@ -365,7 +365,7 @@ jobs:
 ## 🔐 Security & Compliance
 
 ### **Security Measures**
-- **Network Policies** - Segmentation réseau K8s
+- **Network Policies** - Segmentation réseau k3s
 - **RBAC** - Role-based access control
 - **Secrets Management** - Sealed secrets / Vault
 - **Image Scanning** - Vulnerability detection
@@ -376,7 +376,7 @@ jobs:
 # Security scanning
 docker scan dreamscape:latest
 
-# K8s security audit
+# k3s security audit
 kubectl-bench run
 
 # Infrastructure compliance
