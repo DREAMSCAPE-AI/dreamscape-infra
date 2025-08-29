@@ -1,0 +1,284 @@
+# Docker Compose for DreamScape Experience Pod
+# Big Pods Architecture - Frontend UX + VR Content + Gateway
+# Multi-service container optimized for user experience
+
+version: '3.8'
+
+services:
+  # MongoDB Database (shared with Core Pod)
+  mongodb:
+    image: mongo:7-jammy
+    container_name: dreamscape-experience-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: dreamscape
+    ports:
+      - "27018:27017"  # Different port to avoid Core Pod conflict
+    volumes:
+      - experience_mongodb_data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - experience-pod-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for caching VR content and frontend state
+  redis:
+    image: redis:7-alpine
+    container_name: dreamscape-experience-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # Different port to avoid Core Pod conflict
+    volumes:
+      - experience_redis_data:/data
+    networks:
+      - experience-pod-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  # Experience Pod - Frontend + VR + Gateway container
+  experience-pod:
+    build:
+      context: ../../
+      dockerfile: dreamscape-infra/docker/bigpods/experience-pod/Dockerfile
+    container_name: dreamscape-experience-pod
+    restart: unless-stopped
+    ports:
+      - "80:80"        # NGINX frontend server
+      - "3006:3006"    # Panorama Service (direct access)
+      - "3007:3007"    # Gateway Service (direct access)
+    environment:
+      # Node.js environment
+      - NODE_ENV=production
+      
+      # Database connections
+      - DATABASE_URL=mongodb://admin:password123@mongodb:27017/dreamscape?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      
+      # Experience Pod services configuration
+      - NGINX_WORKER_PROCESSES=auto
+      - PANORAMA_SERVICE_PORT=3006
+      - GATEWAY_SERVICE_PORT=3007
+      
+      # VR content configuration
+      - VR_CONTENT_PATH=/usr/share/nginx/html/vr
+      - VR_CACHE_PATH=/var/cache/nginx/vr
+      - VR_OPTIMIZATION_QUALITY=85
+      - VR_STREAMING_ENABLED=true
+      
+      # Frontend performance configuration
+      - STATIC_CACHE_TTL=31536000
+      - PWA_ENABLED=true
+      - SERVICE_WORKER_ENABLED=true
+      
+      # Gateway configuration
+      - CORE_POD_URL=http://core-pod:80
+      - BUSINESS_POD_URL=http://business-pod:80
+      - API_TIMEOUT=30s
+      - GATEWAY_RATE_LIMIT=100
+      
+      # Monitoring and analytics
+      - ANALYTICS_ENABLED=true
+      - PERFORMANCE_MONITORING=true
+      - VR_ANALYTICS_ENABLED=true
+      
+      # Security configuration
+      - CSP_ENABLED=true
+      - CORS_ORIGINS=https://dreamscape.com,https://*.dreamscape.com
+      
+      # Supervisor configuration
+      - SUPERVISOR_USER=admin
+      - SUPERVISOR_PASS=dreamscape_experience_123
+      
+      # Logging configuration
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - ACCESS_LOG_ENABLED=true
+      - VR_ANALYTICS_LOG_ENABLED=true
+      
+      # Performance thresholds
+      - HEALTH_CHECK_INTERVAL=30
+      - MEMORY_THRESHOLD=80
+      - MEMORY_CRITICAL_THRESHOLD=90
+      - CPU_THRESHOLD=85
+      
+    volumes:
+      # Persistent VR content and assets
+      - experience_vr_content:/usr/share/nginx/html/vr
+      - experience_static_assets:/usr/share/nginx/html/assets
+      
+      # Persistent logs
+      - experience_pod_logs:/var/log/supervisor
+      - experience_nginx_logs:/var/log/nginx
+      
+      # NGINX cache for VR content
+      - experience_nginx_cache:/var/cache/nginx
+      
+      # Configuration files (for development)
+      - ./docker/bigpods/experience-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ./docker/bigpods/experience-pod/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/bigpods/experience-pod/nginx/experience-pod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/bigpods/experience-pod/nginx/vr-streaming.conf:/etc/nginx/conf.d/vr-streaming.conf:ro
+      
+      # Health status files (for external monitoring)
+      - experience_pod_status:/tmp/health
+      
+      # VR content uploads (development)
+      - experience_vr_uploads:/tmp/vr-uploads
+      
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - experience-pod-network
+    healthcheck:
+      test: |
+        curl -f http://localhost:80/health && \
+        curl -f http://localhost:3006/health && \
+        curl -f http://localhost:3007/health || exit 1
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "com.dreamscape.service=experience-pod"
+      - "com.dreamscape.version=1.0.0"
+      - "com.dreamscape.environment=production"
+      - "com.dreamscape.architecture=big-pods"
+      - "com.dreamscape.components=web-client,panorama-service,gateway"
+      - "com.dreamscape.performance.target=fcp-2s,lcp-2.5s"
+
+  # Content Delivery Network (optional for production)
+  cdn-cache:
+    image: nginx:alpine
+    container_name: dreamscape-experience-cdn
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - experience_vr_content:/usr/share/nginx/html/vr:ro
+      - experience_static_assets:/usr/share/nginx/html/assets:ro
+      - ./docker/bigpods/experience-pod/nginx/cdn.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - experience-pod
+    networks:
+      - experience-pod-network
+    profiles:
+      - cdn
+      
+  # Performance Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dreamscape-experience-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"  # Different port to avoid Core Pod conflict
+    volumes:
+      - ./monitoring/prometheus-experience-pod.yml:/etc/prometheus/prometheus.yml:ro
+      - experience_prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=http://localhost:9091'
+    depends_on:
+      - experience-pod
+    networks:
+      - experience-pod-network
+    profiles:
+      - monitoring
+
+  # Grafana for Experience Pod metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dreamscape-experience-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"  # Different port to avoid Core Pod conflict
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/experience-pod-overview.json
+    volumes:
+      - experience_grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - experience-pod-network
+    profiles:
+      - monitoring
+
+  # Log aggregation with Fluentd for VR analytics
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: dreamscape-experience-fluentd
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/fluentd/experience-pod-fluent.conf:/fluentd/etc/fluent.conf:ro
+      - experience_pod_logs:/var/log/supervisor:ro
+      - experience_nginx_logs:/var/log/nginx:ro
+    depends_on:
+      - experience-pod
+    networks:
+      - experience-pod-network
+    profiles:
+      - logging
+
+volumes:
+  experience_mongodb_data:
+    name: dreamscape_experience_mongodb_data
+    driver: local
+  experience_redis_data:
+    name: dreamscape_experience_redis_data
+    driver: local
+  experience_pod_logs:
+    name: dreamscape_experience_pod_logs
+    driver: local
+  experience_nginx_logs:
+    name: dreamscape_experience_nginx_logs
+    driver: local
+  experience_nginx_cache:
+    name: dreamscape_experience_nginx_cache
+    driver: local
+  experience_vr_content:
+    name: dreamscape_experience_vr_content
+    driver: local
+  experience_static_assets:
+    name: dreamscape_experience_static_assets
+    driver: local
+  experience_pod_status:
+    name: dreamscape_experience_pod_status
+    driver: local
+  experience_vr_uploads:
+    name: dreamscape_experience_vr_uploads
+    driver: local
+  experience_prometheus_data:
+    name: dreamscape_experience_prometheus_data
+    driver: local
+  experience_grafana_data:
+    name: dreamscape_experience_grafana_data
+    driver: local
+
+networks:
+  experience-pod-network:
+    name: dreamscape-experience-pod-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16

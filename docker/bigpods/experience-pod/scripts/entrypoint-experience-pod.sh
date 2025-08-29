@@ -121,8 +121,10 @@ fi
 
 # Initialize VR cache structure
 for quality in hq mq lq; do
+    mkdir -p "/var/cache/nginx/vr/$quality"
     touch "/var/cache/nginx/vr/$quality/.gitkeep"
 done
+mkdir -p "/var/cache/nginx/vr/thumbs"
 touch "/var/cache/nginx/vr/thumbs/.gitkeep"
 
 echo "✅ VR content system initialized"
@@ -236,7 +238,7 @@ echo "✅ Performance optimizations applied"
 echo "🔗 Checking service dependencies..."
 
 # Wait for database connections (if configured)
-if [[ -n "$DATABASE_URL" ]]; then
+if [[ -n "${DATABASE_URL:-}" ]]; then
     echo "⏳ Waiting for database connection..."
     for i in {1..30}; do
         if timeout 5 node -e "const mongoose = require('mongoose'); mongoose.connect('$DATABASE_URL').then(() => process.exit(0)).catch(() => process.exit(1));" 2>/dev/null; then
@@ -251,7 +253,7 @@ if [[ -n "$DATABASE_URL" ]]; then
 fi
 
 # Wait for Redis (if configured)
-if [[ -n "$REDIS_URL" ]]; then
+if [[ -n "${REDIS_URL:-}" ]]; then
     echo "⏳ Waiting for Redis connection..."
     for i in {1..15}; do
         if timeout 3 redis-cli -u "$REDIS_URL" ping >/dev/null 2>&1; then

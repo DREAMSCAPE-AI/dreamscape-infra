@@ -78,6 +78,9 @@ RUN apk add --no-cache \
     tzdata \
     ca-certificates \
     dumb-init \
+    imagemagick \
+    ffmpeg \
+    libwebp-tools \
     && rm -rf /var/cache/apk/*
 
 # Create application directories with proper structure
@@ -111,6 +114,9 @@ COPY --from=frontend-builder /build/web/dist/*.gz /usr/share/nginx/html/
 # Gateway service with built application
 COPY --from=gateway-builder /build/gateway/dist /app/gateway/dist/
 COPY --from=gateway-builder /build/gateway/package.json /app/gateway/
+# Copy proper gateway service
+COPY services/gateway-service/server.js /app/gateway/dist/server.js
+COPY services/gateway-service/package.json /app/gateway/package.json
 
 # Install gateway production dependencies
 WORKDIR /app/gateway
@@ -119,6 +125,9 @@ RUN npm install --only=production --silent && npm cache clean --force || true
 # Panorama service with optimized VR content
 COPY --from=panorama-builder /build/panorama/dist /app/panorama/dist/
 COPY --from=panorama-builder /build/panorama/package.json /app/panorama/
+# Copy proper panorama service
+COPY services/panorama-service/server.js /app/panorama/dist/server.js
+COPY services/panorama-service/package.json /app/panorama/package.json
 
 # Install panorama production dependencies
 WORKDIR /app/panorama
@@ -148,7 +157,9 @@ RUN chmod +x /app/scripts/*.py /app/scripts/*.sh
 
 # Entrypoint script
 COPY scripts/entrypoint-experience-pod.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh && \
+    # Fix line endings for Docker compatibility
+    sed -i 's/\r$//' /usr/local/bin/entrypoint.sh
 
 # ===============================================
 # Permissions and Security
@@ -202,4 +213,4 @@ LABEL \
 
 # Start Experience Pod with dumb-init for proper signal handling
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/entrypoint.sh", "supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf", "-n"]
