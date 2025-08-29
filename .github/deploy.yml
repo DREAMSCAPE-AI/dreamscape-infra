@@ -1,0 +1,478 @@
+name: CD Pipeline - Deploy to Cloudflare
+on:
+  # Déclenchement automatique après build des images
+  repository_dispatch:
+    types: [deploy-images]
+  
+  # Déclenchement manuel
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment à déployer'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      services:
+        description: 'Services à déployer (frontend,backend ou all)'
+        required: false
+        default: 'all'
+        type: string
+      image_tag:
+        description: 'Tag des images Docker à déployer'
+        required: false
+        type: string
+      skip_tests:
+        description: 'Skip les tests pré/post déploiement'
+        required: false
+        default: false
+        type: boolean
+      force_deploy:
+        description: 'Force le déploiement même si des services sont down'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOCKER_IMAGE_FRONT: dreamscape/frontend
+  DOCKER_IMAGE_BACK: dreamscape/backend
+
+jobs:
+  # ======= PREPARATION =======
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      services: ${{ steps.set-services.outputs.services }}
+      deploy_frontend: ${{ steps.set-services.outputs.deploy_frontend }}
+      deploy_backend: ${{ steps.set-services.outputs.deploy_backend }}
+      image_tag: ${{ steps.set-tag.outputs.image_tag }}
+      vm_host: ${{ steps.set-env.outputs.vm_host }}
+    steps:
+      - name: Set environment and VM host
+        id: set-env
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            environment="staging"
+          else
+            environment="${{ github.event.inputs.environment }}"
+          fi
+          
+          echo "environment=$environment" >> $GITHUB_OUTPUT
+          
+          if [[ "$environment" == "production" ]]; then
+            echo "vm_host=${{ secrets.VM_HOST_PRODUCTION }}" >> $GITHUB_OUTPUT
+          else
+            echo "vm_host=${{ secrets.VM_HOST_STAGING }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set services to deploy
+        id: set-services
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            services="${{ github.event.client_payload.services }}"
+          else
+            services="${{ github.event.inputs.services }}"
+          fi
+          
+          if [[ "$services" == "" || "$services" == "all" ]]; then
+            services="frontend,backend"
+          fi
+          
+          echo "services=$services" >> $GITHUB_OUTPUT
+          
+          if [[ "$services" == *"frontend"* ]]; then
+            echo "deploy_frontend=true" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_frontend=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [[ "$services" == *"backend"* ]]; then
+            echo "deploy_backend=true" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_backend=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set image tag
+        id: set-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            image_tag="${{ github.event.client_payload.commit_sha }}${{ github.event.client_payload.tag_suffix }}"
+          elif [[ "${{ github.event.inputs.image_tag }}" != "" ]]; then
+            image_tag="${{ github.event.inputs.image_tag }}"
+          else
+            image_tag="latest"
+          fi
+          
+          echo "image_tag=$image_tag" >> $GITHUB_OUTPUT
+
+  # ======= PRE-DEPLOYMENT TESTS =======
+  pre-deployment-tests:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_tests != 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: votre-org/dreamscape-tests
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run pre-deployment tests
+        run: |
+          echo "🧪 Running pre-deployment validation tests"
+          echo "Environment: ${{ needs.prepare.outputs.environment }}"
+          echo "Services: ${{ needs.prepare.outputs.services }}"
+          echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
+          
+          # Tests de validation des images Docker
+          npm run test:pre-deploy
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.environment }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+
+  # ======= INFRASTRUCTURE SETUP =======
+  setup-infrastructure:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.5.0'
+
+      - name: Configure Cloudflare credentials
+        run: |
+          echo "Setting up Cloudflare and cloud provider credentials"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Terraform Init
+        run: |
+          cd terraform/${{ needs.prepare.outputs.environment }}
+          terraform init
+
+      - name: Terraform Plan
+        run: |
+          cd terraform/${{ needs.prepare.outputs.environment }}
+          terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: needs.prepare.outputs.environment == 'production' || github.event.inputs.force_deploy == 'true'
+        run: |
+          cd terraform/${{ needs.prepare.outputs.environment }}
+          terraform apply -auto-approve tfplan
+
+      - name: Output infrastructure info
+        run: |
+          cd terraform/${{ needs.prepare.outputs.environment }}
+          terraform output
+
+  # ======= DEPLOY SERVICES =======
+  deploy:
+    needs: [prepare, pre-deployment-tests, setup-infrastructure]
+    if: always() && (needs.pre-deployment-tests.result == 'success' || needs.pre-deployment-tests.result == 'skipped')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: frontend
+            condition: ${{ needs.prepare.outputs.deploy_frontend == 'true' }}
+          - service: backend
+            condition: ${{ needs.prepare.outputs.deploy_backend == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH for VM access
+        if: matrix.condition
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
+
+      - name: Make scripts executable
+        if: matrix.condition
+        run: |
+          chmod +x scripts/*.sh
+
+      - name: Pre-deployment health check
+        if: matrix.condition
+        run: |
+          echo "🏥 Checking current ${{ matrix.service }} health before deployment"
+          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }} || echo "Service not currently running"
+
+      - name: Deploy ${{ matrix.service }} to Cloudflare VMs
+        if: matrix.condition
+        run: |
+          SERVICE="${{ matrix.service }}"
+          ENV="${{ needs.prepare.outputs.environment }}"
+          IMAGE_TAG="${{ needs.prepare.outputs.image_tag }}"
+          VM_HOST="${{ needs.prepare.outputs.vm_host }}"
+          
+          echo "🚀 Deploying $SERVICE:$IMAGE_TAG to $ENV environment"
+          echo "Target VM: $VM_HOST"
+          
+          # Déploiement spécifique par service
+          case $SERVICE in
+            "frontend")
+              ./scripts/deploy-frontend.sh $ENV $IMAGE_TAG $VM_HOST
+              ;;
+            "backend")
+              ./scripts/deploy-backend.sh $ENV $IMAGE_TAG $VM_HOST
+              ;;
+            *)
+              echo "Unknown service: $SERVICE"
+              exit 1
+              ;;
+          esac
+
+      - name: Update Cloudflare DNS/Load Balancer
+        if: matrix.condition
+        run: |
+          echo "🌐 Updating Cloudflare configuration for ${{ matrix.service }}"
+          ./scripts/update-cloudflare.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
+          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
+
+      - name: Post-deployment service health check
+        if: matrix.condition
+        run: |
+          echo "🔍 Verifying ${{ matrix.service }} deployment health"
+          sleep 15
+          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }}
+
+  # ======= POST-DEPLOYMENT TESTS =======
+  post-deployment-tests:
+    needs: [prepare, deploy]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_tests != 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: votre-org/dreamscape-tests
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for services to be ready
+        run: |
+          echo "⏳ Waiting for services to be fully deployed..."
+          sleep 30
+
+      - name: Run post-deployment tests
+        run: |
+          echo "🔍 Running post-deployment tests"
+          npm run test:post-deploy
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.environment }}
+          BASE_URL: ${{ needs.prepare.outputs.environment == 'production' && 'https://dreamscape.com' || 'https://staging.dreamscape.com' }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+
+      - name: Run smoke tests
+        run: |
+          echo "💨 Running smoke tests"
+          npm run test:smoke
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.environment }}
+          BASE_URL: ${{ needs.prepare.outputs.environment == 'production' && 'https://dreamscape.com' || 'https://staging.dreamscape.com' }}
+
+  # ======= ROLLBACK =======
+  rollback:
+    if: failure() && (needs.deploy.result == 'failure' || needs.post-deployment-tests.result == 'failure')
+    needs: [prepare, deploy, post-deployment-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH for rollback
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
+
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/*.sh
+
+      - name: Rollback deployment
+        run: |
+          echo "🔄 Rolling back deployment"
+          echo "Environment: ${{ needs.prepare.outputs.environment }}"
+          echo "Services: ${{ needs.prepare.outputs.services }}"
+          
+          ./scripts/rollback.sh ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.services }}
+        env:
+          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
+          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
+
+      - name: Restore Cloudflare configuration
+        run: |
+          echo "🌐 Restoring Cloudflare configuration"
+          ./scripts/restore-cloudflare.sh ${{ needs.prepare.outputs.environment }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+
+      - name: Verify rollback
+        run: |
+          echo "🔍 Verifying rollback success"
+          sleep 30
+          
+          if [[ "${{ needs.prepare.outputs.services }}" == *"frontend"* ]]; then
+            ./scripts/healthcheck.sh frontend ${{ needs.prepare.outputs.environment }}
+          fi
+          
+          if [[ "${{ needs.prepare.outputs.services }}" == *"backend"* ]]; then
+            ./scripts/healthcheck.sh backend ${{ needs.prepare.outputs.environment }}
+          fi
+
+      - name: Notify rollback
+        run: |
+          echo "🚨 ROLLBACK EXECUTED"
+          echo "Reason: Deployment or post-deployment tests failed"
+          echo "Environment: ${{ needs.prepare.outputs.environment }}"
+          echo "Services: ${{ needs.prepare.outputs.services }}"
+
+  # ======= CLEANUP OLD IMAGES =======
+  cleanup:
+    needs: [prepare, deploy, post-deployment-tests]
+    runs-on: ubuntu-latest
+    if: success() && needs.prepare.outputs.environment == 'staging'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH for cleanup
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
+
+      - name: Cleanup old Docker images
+        run: |
+          echo "🧹 Cleaning up old Docker images"
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ needs.prepare.outputs.vm_host }} "
+            # Garder seulement les 5 dernières images de chaque service
+            docker images dreamscape/frontend --format 'table {{.Tag}} {{.ID}}' | grep -v latest | grep -v TAG | tail -n +6 | awk '{print \$2}' | xargs -r docker rmi || true
+            docker images dreamscape/backend --format 'table {{.Tag}} {{.ID}}' | grep -v latest | grep -v TAG | tail -n +6 | awk '{print \$2}' | xargs -r docker rmi || true
+            
+            # Nettoyer les images non utilisées
+            docker image prune -f
+          "
+
+  # ======= NOTIFICATIONS =======
+  notify:
+    if: always()
+    needs: [prepare, deploy, post-deployment-tests, rollback, cleanup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set notification variables
+        id: set-vars
+        run: |
+          if [[ "${{ needs.deploy.result }}" == "success" && "${{ needs.post-deployment-tests.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "icon=✅" >> $GITHUB_OUTPUT
+            echo "title=DEPLOYMENT SUCCESSFUL" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.rollback.result }}" == "success" ]]; then
+            echo "status=rollback" >> $GITHUB_OUTPUT
+            echo "icon=🔄" >> $GITHUB_OUTPUT
+            echo "title=DEPLOYMENT ROLLED BACK" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "icon=❌" >> $GITHUB_OUTPUT
+            echo "title=DEPLOYMENT FAILED" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify deployment status
+        run: |
+          echo "📋 DREAMSCAPE DEPLOYMENT SUMMARY"
+          echo "================================"
+          echo "${{ steps.set-vars.outputs.icon }} ${{ steps.set-vars.outputs.title }}"
+          echo ""
+          echo "Details:"
+          echo "  🌍 Environment: ${{ needs.prepare.outputs.environment }}"
+          echo "  🔧 Services: ${{ needs.prepare.outputs.services }}"
+          echo "  🏷️ Image tag: ${{ needs.prepare.outputs.image_tag }}"
+          echo "  🖥️ VM Host: ${{ needs.prepare.outputs.vm_host }}"
+          echo "  ⏰ Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          echo "Pipeline Results:"
+          echo "  - 🧪 Pre-tests: ${{ needs.pre-deployment-tests.result }}"
+          echo "  - 🚀 Deploy: ${{ needs.deploy.result }}"
+          echo "  - ✅ Post-tests: ${{ needs.post-deployment-tests.result }}"
+          echo "  - 🔄 Rollback: ${{ needs.rollback.result }}"
+          echo "  - 🧹 Cleanup: ${{ needs.cleanup.result }}"
+          
+          if [[ "${{ steps.set-vars.outputs.status }}" == "success" ]]; then
+            echo ""
+            echo "🌐 Application available at:"
+            if [[ "${{ needs.prepare.outputs.environment }}" == "production" ]]; then
+              echo "  - Frontend: https://dreamscape.com"
+              echo "  - API: https://api.dreamscape.com"
+            else
+              echo "  - Frontend: https://staging.dreamscape.com"
+              echo "  - API: https://api.staging.dreamscape.com"
+            fi
+            echo ""
+            echo "🏷️ Deployed version: ${{ needs.prepare.outputs.image_tag }}"
+            echo "📊 Deployment time: $(date -d @$(($(date +%s) - ${{ github.event.created_at && '$(date -d "${{ github.event.created_at }}" +%s)' || '0' }})) -u +%H:%M:%S)"
+            
+          elif [[ "${{ steps.set-vars.outputs.status }}" == "rollback" ]]; then
+            echo ""
+            echo "🔄 ROLLBACK COMPLETED"
+            echo "Previous stable version has been restored"
+            echo "Check the logs above for failure details"
+            
+          else
+            echo ""
+            echo "❌ DEPLOYMENT FAILED"
+            echo "Manual intervention may be required"
+            echo "Check the workflow logs for detailed error information"
+          fi
+          
+          echo ""
+          echo "🔗 Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      # Ici vous pouvez ajouter des notifications Slack/Teams/Discord
+      - name: Send Slack notification (optionnel)
+        if: always() && false  # Activez en changeant false en true
+        run: |
+          # Exemple de notification Slack
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"${{ steps.set-vars.outputs.icon }} DreamScape Deployment\",
+              \"attachments\": [{
+                \"color\": \"${{ steps.set-vars.outputs.status == 'success' && 'good' || steps.set-vars.outputs.status == 'rollback' && 'warning' || 'danger' }}\",
+                \"fields\": [
+                  {\"title\": \"Environment\", \"value\": \"${{ needs.prepare.outputs.environment }}\", \"short\": true},
+                  {\"title\": \"Services\", \"value\": \"${{ needs.prepare.outputs.services }}\", \"short\": true},
+                  {\"title\": \"Status\", \"value\": \"${{ steps.set-vars.outputs.title }}\", \"short\": true},
+                  {\"title\": \"Version\", \"value\": \"${{ needs.prepare.outputs.image_tag }}\", \"short\": true}
+                ]
+              }]
+            }" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
