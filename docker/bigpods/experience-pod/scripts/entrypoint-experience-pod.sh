@@ -240,12 +240,13 @@ echo "🔗 Checking service dependencies..."
 # Wait for database connections (if configured)
 if [[ -n "${DATABASE_URL:-}" ]]; then
     echo "⏳ Waiting for database connection..."
-    for i in {1..30}; do
-        if timeout 5 node -e "const mongoose = require('mongoose'); mongoose.connect('$DATABASE_URL').then(() => process.exit(0)).catch(() => process.exit(1));" 2>/dev/null; then
+    for i in {1..15}; do
+        if timeout 5 curl -s mongodb://admin:password123@mongodb:27017/admin >/dev/null 2>&1 ||
+           timeout 5 nc -z mongodb 27017 >/dev/null 2>&1; then
             echo "✅ Database connection established"
             break
         fi
-        if [[ $i -eq 30 ]]; then
+        if [[ $i -eq 15 ]]; then
             echo "⚠️ Database connection timeout (continuing anyway)"
         fi
         sleep 2
