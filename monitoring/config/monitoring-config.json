@@ -1,0 +1,82 @@
+{
+    "monitoring_config": {
+        "version": "1.0.0",
+        "update_frequency": "daily",
+        "github_organizations": [
+            {
+                "name": "dreamscapeai",
+                "description": "YouTube Channel focusing on Stable Diffusion and Google Colab",
+                "priority": "high",
+                "repositories_of_interest": [
+                    "sagemaker-studiolab",
+                    "CN-v11400",
+                    "forge-ui", 
+                    "stable-diffusion-webui"
+                ]
+            },
+            {
+                "name": "Dreamscapes",
+                "description": "General development organization with 19 repositories",
+                "priority": "medium"
+            },
+            {
+                "name": "Secret-Dreamscape",
+                "description": "NFT and blockchain projects",
+                "priority": "low",
+                "repositories_of_interest": [
+                    "contract",
+                    "jackpot",
+                    "user-card-settings"
+                ]
+            }
+        ],
+        "target_repositories": [
+            "auth-service",
+            "user-service", 
+            "gateway-service",
+            "voyage-service",
+            "dreamscape-infra",
+            "dreamscape-services"
+        ],
+        "monitoring_keywords": [
+            "database",
+            "mongodb",
+            "postgresql",
+            "postgres",
+            "migration",
+            "schema",
+            "auth",
+            "authentication",
+            "microservice",
+            "docker",
+            "kubernetes",
+            "infrastructure"
+        ],
+        "database_technologies": {
+            "current_support": [
+                "PostgreSQL",
+                "MongoDB", 
+                "Redis",
+                "Elasticsearch"
+            ],
+            "migration_patterns": [
+                "MongoDB to PostgreSQL",
+                "Microservice database per service",
+                "Schema versioning",
+                "Change data capture"
+            ]
+        },
+        "alerts": {
+            "new_pull_requests": true,
+            "database_config_changes": true,
+            "migration_discussions": true,
+            "infrastructure_updates": true
+        },
+        "reporting": {
+            "format": "json",
+            "include_metrics": true,
+            "retention_days": 30,
+            "export_formats": ["json", "csv", "html"]
+        }
+    }
+}

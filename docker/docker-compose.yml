@@ -3,24 +3,24 @@
 
 
 services:
-  # MongoDB Database
-  mongodb:
-    image: mongo:7-jammy
-    container_name: dreamscape-mongodb
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dreamscape-postgres
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
-      MONGO_INITDB_DATABASE: dreamscape
+      POSTGRES_DB: dreamscape
+      POSTGRES_USER: dreamscape_user
+      POSTGRES_PASSWORD: dreamscape_password
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongodb_data:/data/db
-      - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - dreamscape-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "pg_isready -U dreamscape_user -d dreamscape"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -61,7 +61,7 @@ services:
       - USER_SERVICE_HOST=user-service
       - USER_SERVICE_PORT=3002
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -79,8 +79,8 @@ services:
       - "com.dreamscape.environment=development"
 
 volumes:
-  mongodb_data:
-    name: dreamscape_mongodb_data
+  postgres_data:
+    name: dreamscape_postgres_data
     driver: local
   redis_data:
     name: dreamscape_redis_data

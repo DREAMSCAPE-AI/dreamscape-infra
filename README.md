@@ -531,4 +531,3 @@ curl -s http://localhost:3002/health | jq '.'
 ## 📄 License
 
 Propriétaire et confidentiel © DreamScape 2025
-
