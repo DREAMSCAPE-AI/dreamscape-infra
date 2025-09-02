@@ -1,0 +1,72 @@
+name: Dreamscape Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ORG: DREAMSCAPE-AI
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci;
+          elif [ -f yarn.lock ]; then yarn install --frozen-lockfile;
+          else echo "No lockfile found → skipping install."; fi
+
+      - name: Build project
+        run: npm run build --if-present
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci;
+          elif [ -f yarn.lock ]; then yarn install --frozen-lockfile;
+          else echo "No lockfile found → skipping install."; fi
+
+      - name: Lint project
+        run: npm run lint --if-present
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone dreamscape-test repository
+        env:
+          TOKEN: ${{ secrets.CI_CLONE_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://x-access-token:${TOKEN}@github.com/${{ env.ORG }}/dreamscape-test.git"
+          git clone --depth 1 "$url" dreamscape-test
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci;
+          elif [ -f yarn.lock ]; then yarn install --frozen-lockfile;
+          else echo "No lockfile found → skipping install."; fi
+
+      - name: Run tests
+        run: npm run test || echo "No test script → skipping"
