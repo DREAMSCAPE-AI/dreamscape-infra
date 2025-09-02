@@ -2,7 +2,7 @@
 # DR-336: INFRA-010.3 - Configuration Supervisor et Orchestration
 # Multi-process container with NGINX, Auth Service, and User Service
 
-version: '3.8'
+# version: '3.8'  # Deprecated in newer Docker Compose
 
 services:
   # MongoDB Database
@@ -18,7 +18,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-      - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - core-pod-network
     healthcheck:
@@ -49,8 +49,8 @@ services:
   # Core Pod - Multi-service container with Supervisor
   core-pod:
     build:
-      context: ./dreamscape-infrastructure/core-pod
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: dreamscape-infra/docker/core-pod/Dockerfile.demo
     container_name: dreamscape-core-pod
     restart: unless-stopped
     ports:
@@ -101,7 +101,7 @@ services:
       - user_uploads:/app/user/uploads
       
       # Configuration files (for development)
-      - ./dreamscape-infrastructure/core-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ./core-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
       
       # Health status files (for external monitoring)
       - core_pod_status:/tmp

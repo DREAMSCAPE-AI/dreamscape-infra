@@ -5,21 +5,21 @@
 # Stage 1: Build Auth Service
 FROM node:20-alpine AS auth-builder
 WORKDIR /app/auth
-COPY ../../auth-service/package*.json ./
-COPY ../../auth-service/tsconfig.json ./
+COPY dreamscape-services/auth/package*.json ./
+COPY dreamscape-services/auth/tsconfig.json ./
 RUN npm ci --include=dev && npm cache clean --force
-COPY ../../auth-service/src/ ./src/
-COPY ../../auth-service/prisma/ ./prisma/
+COPY dreamscape-services/auth/src/ ./src/
+COPY dreamscape-services/auth/prisma/ ./prisma/
 RUN npx prisma generate && npm run build
 
 # Stage 2: Build User Service  
 FROM node:20-alpine AS user-builder
 WORKDIR /app/user
-COPY ../../user-service/package*.json ./
-COPY ../../user-service/tsconfig.json ./
+COPY dreamscape-services/user/package*.json ./
+COPY dreamscape-services/user/tsconfig.json ./
 RUN npm ci --include=dev && npm cache clean --force
-COPY ../../user-service/src/ ./src/
-COPY ../../user-service/prisma/ ./prisma/
+COPY dreamscape-services/user/src/ ./src/
+COPY dreamscape-services/user/prisma/ ./prisma/
 RUN npx prisma generate && npm run build
 
 # Stage 3: Final Multi-Service Runtime
@@ -69,13 +69,13 @@ COPY --from=user-builder --chown=nodejs:nodejs /app/user/dist /app/user/dist
 COPY --from=user-builder --chown=nodejs:nodejs /app/user/prisma /app/user/prisma
 COPY --from=user-builder --chown=nodejs:nodejs /app/user/package.json /app/user/
 
-# Copy NGINX configuration from gateway
-COPY --chown=nginx:nginx ../../dreamscape-gateway/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --chown=nginx:nginx ../../dreamscape-gateway/nginx/default.conf /etc/nginx/conf.d/default.conf
+# Copy NGINX configuration optimized for Core Pod
+COPY --chown=nginx:nginx docker/core-pod/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY --chown=nginx:nginx docker/core-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
 
 # Copy Supervisor configuration and scripts
-COPY --chown=root:root supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY --chown=root:root scripts/ /app/scripts/
+COPY --chown=root:root docker/core-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --chown=root:root docker/core-pod/scripts/ /app/scripts/
 
 # Make scripts executable
 RUN chmod +x /app/scripts/*.py
@@ -93,7 +93,7 @@ RUN mkdir -p \
     && chmod 755 /app/user/uploads
 
 # Copy entrypoint script
-COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/core-pod/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose ports for all services
