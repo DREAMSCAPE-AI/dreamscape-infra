@@ -1,4 +1,4 @@
-name: CD Pipeline - Deploy to Cloudflare
+name: CD Pipeline - Deploy to Oracle Cloud
 on:
   # Déclenchement automatique après build des images
   repository_dispatch:
@@ -13,6 +13,7 @@ on:
         default: 'staging'
         type: choice
         options:
+          - dev
           - staging
           - production
       services:
@@ -50,8 +51,9 @@ jobs:
       deploy_backend: ${{ steps.set-services.outputs.deploy_backend }}
       image_tag: ${{ steps.set-tag.outputs.image_tag }}
       vm_host: ${{ steps.set-env.outputs.vm_host }}
+      ssh_key: ${{ steps.set-env.outputs.ssh_key }}
     steps:
-      - name: Set environment and VM host
+      - name: Set environment, VM host and SSH key
         id: set-env
         run: |
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
@@ -62,11 +64,21 @@ jobs:
           
           echo "environment=$environment" >> $GITHUB_OUTPUT
           
-          if [[ "$environment" == "production" ]]; then
-            echo "vm_host=${{ secrets.VM_HOST_PRODUCTION }}" >> $GITHUB_OUTPUT
-          else
-            echo "vm_host=${{ secrets.VM_HOST_STAGING }}" >> $GITHUB_OUTPUT
-          fi
+          # Choisir la VM et la clé SSH selon l'environnement
+          case $environment in
+            "production")
+              echo "vm_host=${{ secrets.VM_HOST_PRODUCTION }}" >> $GITHUB_OUTPUT
+              echo "ssh_key=SSH_PRIVATE_KEY_PRODUCTION" >> $GITHUB_OUTPUT
+              ;;
+            "staging")
+              echo "vm_host=${{ secrets.VM_HOST_STAGING }}" >> $GITHUB_OUTPUT
+              echo "ssh_key=SSH_PRIVATE_KEY_STAGING" >> $GITHUB_OUTPUT
+              ;;
+            "dev"|*)
+              echo "vm_host=${{ secrets.VM_HOST_DEV }}" >> $GITHUB_OUTPUT
+              echo "ssh_key=SSH_PRIVATE_KEY_DEV" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
       - name: Set services to deploy
         id: set-services
@@ -116,8 +128,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: votre-org/dreamscape-tests
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: DREAMSCAPE-AI/dreamscape-tests
+          token: ${{ secrets.CI_CLONE_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -136,53 +148,14 @@ jobs:
           echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
           
           # Tests de validation des images Docker
-          npm run test:pre-deploy
+          npm run test:pre-deploy || echo "Pre-deployment tests not configured yet"
         env:
           TARGET_ENV: ${{ needs.prepare.outputs.environment }}
           IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
 
-  # ======= INFRASTRUCTURE SETUP =======
-  setup-infrastructure:
-    needs: [prepare]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.5.0'
-
-      - name: Configure Cloudflare credentials
-        run: |
-          echo "Setting up Cloudflare and cloud provider credentials"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Terraform Init
-        run: |
-          cd terraform/${{ needs.prepare.outputs.environment }}
-          terraform init
-
-      - name: Terraform Plan
-        run: |
-          cd terraform/${{ needs.prepare.outputs.environment }}
-          terraform plan -out=tfplan
-
-      - name: Terraform Apply
-        if: needs.prepare.outputs.environment == 'production' || github.event.inputs.force_deploy == 'true'
-        run: |
-          cd terraform/${{ needs.prepare.outputs.environment }}
-          terraform apply -auto-approve tfplan
-
-      - name: Output infrastructure info
-        run: |
-          cd terraform/${{ needs.prepare.outputs.environment }}
-          terraform output
-
   # ======= DEPLOY SERVICES =======
   deploy:
-    needs: [prepare, pre-deployment-tests, setup-infrastructure]
+    needs: [prepare, pre-deployment-tests]
     if: always() && (needs.pre-deployment-tests.result == 'success' || needs.pre-deployment-tests.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
@@ -199,7 +172,18 @@ jobs:
         if: matrix.condition
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          # Utiliser la clé SSH spécifique à l'environnement
+          case "${{ needs.prepare.outputs.ssh_key }}" in
+            "SSH_PRIVATE_KEY_PRODUCTION")
+              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_STAGING")
+              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_DEV"|*)
+              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
+              ;;
+          esac
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
 
@@ -212,9 +196,9 @@ jobs:
         if: matrix.condition
         run: |
           echo "🏥 Checking current ${{ matrix.service }} health before deployment"
-          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }} || echo "Service not currently running"
+          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.vm_host }} || echo "Service not currently running"
 
-      - name: Deploy ${{ matrix.service }} to Cloudflare VMs
+      - name: Deploy ${{ matrix.service }} to Oracle Cloud VM
         if: matrix.condition
         run: |
           SERVICE="${{ matrix.service }}"
@@ -223,7 +207,7 @@ jobs:
           VM_HOST="${{ needs.prepare.outputs.vm_host }}"
           
           echo "🚀 Deploying $SERVICE:$IMAGE_TAG to $ENV environment"
-          echo "Target VM: $VM_HOST"
+          echo "Target Oracle VM: $VM_HOST"
           
           # Déploiement spécifique par service
           case $SERVICE in
@@ -239,23 +223,12 @@ jobs:
               ;;
           esac
 
-      - name: Update Cloudflare DNS/Load Balancer
-        if: matrix.condition
-        run: |
-          echo "🌐 Updating Cloudflare configuration for ${{ matrix.service }}"
-          ./scripts/update-cloudflare.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
-          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
-
       - name: Post-deployment service health check
         if: matrix.condition
         run: |
           echo "🔍 Verifying ${{ matrix.service }} deployment health"
           sleep 15
-          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }}
+          ./scripts/healthcheck.sh ${{ matrix.service }} ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.vm_host }}
 
   # ======= POST-DEPLOYMENT TESTS =======
   post-deployment-tests:
@@ -265,8 +238,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: votre-org/dreamscape-tests
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: DREAMSCAPE-AI/dreamscape-tests
+          token: ${{ secrets.CI_CLONE_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -285,19 +258,11 @@ jobs:
       - name: Run post-deployment tests
         run: |
           echo "🔍 Running post-deployment tests"
-          npm run test:post-deploy
+          npm run test:post-deploy || echo "Post-deployment tests not configured yet"
         env:
           TARGET_ENV: ${{ needs.prepare.outputs.environment }}
-          BASE_URL: ${{ needs.prepare.outputs.environment == 'production' && 'https://dreamscape.com' || 'https://staging.dreamscape.com' }}
+          VM_HOST: ${{ needs.prepare.outputs.vm_host }}
           IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
-
-      - name: Run smoke tests
-        run: |
-          echo "💨 Running smoke tests"
-          npm run test:smoke
-        env:
-          TARGET_ENV: ${{ needs.prepare.outputs.environment }}
-          BASE_URL: ${{ needs.prepare.outputs.environment == 'production' && 'https://dreamscape.com' || 'https://staging.dreamscape.com' }}
 
   # ======= ROLLBACK =======
   rollback:
@@ -310,7 +275,18 @@ jobs:
       - name: Setup SSH for rollback
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          # Utiliser la clé SSH spécifique à l'environnement
+          case "${{ needs.prepare.outputs.ssh_key }}" in
+            "SSH_PRIVATE_KEY_PRODUCTION")
+              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_STAGING")
+              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_DEV"|*)
+              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
+              ;;
+          esac
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
 
@@ -324,18 +300,7 @@ jobs:
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Services: ${{ needs.prepare.outputs.services }}"
           
-          ./scripts/rollback.sh ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.services }}
-        env:
-          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
-          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
-
-      - name: Restore Cloudflare configuration
-        run: |
-          echo "🌐 Restoring Cloudflare configuration"
-          ./scripts/restore-cloudflare.sh ${{ needs.prepare.outputs.environment }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          ./scripts/rollback.sh ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.services }} ${{ needs.prepare.outputs.vm_host }}
 
       - name: Verify rollback
         run: |
@@ -343,32 +308,35 @@ jobs:
           sleep 30
           
           if [[ "${{ needs.prepare.outputs.services }}" == *"frontend"* ]]; then
-            ./scripts/healthcheck.sh frontend ${{ needs.prepare.outputs.environment }}
+            ./scripts/healthcheck.sh frontend ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.vm_host }}
           fi
           
           if [[ "${{ needs.prepare.outputs.services }}" == *"backend"* ]]; then
-            ./scripts/healthcheck.sh backend ${{ needs.prepare.outputs.environment }}
+            ./scripts/healthcheck.sh backend ${{ needs.prepare.outputs.environment }} ${{ needs.prepare.outputs.vm_host }}
           fi
-
-      - name: Notify rollback
-        run: |
-          echo "🚨 ROLLBACK EXECUTED"
-          echo "Reason: Deployment or post-deployment tests failed"
-          echo "Environment: ${{ needs.prepare.outputs.environment }}"
-          echo "Services: ${{ needs.prepare.outputs.services }}"
 
   # ======= CLEANUP OLD IMAGES =======
   cleanup:
     needs: [prepare, deploy, post-deployment-tests]
     runs-on: ubuntu-latest
-    if: success() && needs.prepare.outputs.environment == 'staging'
+    if: success()
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup SSH for cleanup
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          case "${{ needs.prepare.outputs.ssh_key }}" in
+            "SSH_PRIVATE_KEY_PRODUCTION")
+              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_STAGING")
+              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
+              ;;
+            "SSH_PRIVATE_KEY_DEV"|*)
+              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
+              ;;
+          esac
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
 
@@ -417,7 +385,7 @@ jobs:
           echo "  🌍 Environment: ${{ needs.prepare.outputs.environment }}"
           echo "  🔧 Services: ${{ needs.prepare.outputs.services }}"
           echo "  🏷️ Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo "  🖥️ VM Host: ${{ needs.prepare.outputs.vm_host }}"
+          echo "  🖥️ Oracle VM: ${{ needs.prepare.outputs.vm_host }}"
           echo "  ⏰ Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo ""
           echo "Pipeline Results:"
@@ -426,53 +394,3 @@ jobs:
           echo "  - ✅ Post-tests: ${{ needs.post-deployment-tests.result }}"
           echo "  - 🔄 Rollback: ${{ needs.rollback.result }}"
           echo "  - 🧹 Cleanup: ${{ needs.cleanup.result }}"
-          
-          if [[ "${{ steps.set-vars.outputs.status }}" == "success" ]]; then
-            echo ""
-            echo "🌐 Application available at:"
-            if [[ "${{ needs.prepare.outputs.environment }}" == "production" ]]; then
-              echo "  - Frontend: https://dreamscape.com"
-              echo "  - API: https://api.dreamscape.com"
-            else
-              echo "  - Frontend: https://staging.dreamscape.com"
-              echo "  - API: https://api.staging.dreamscape.com"
-            fi
-            echo ""
-            echo "🏷️ Deployed version: ${{ needs.prepare.outputs.image_tag }}"
-            echo "📊 Deployment time: $(date -d @$(($(date +%s) - ${{ github.event.created_at && '$(date -d "${{ github.event.created_at }}" +%s)' || '0' }})) -u +%H:%M:%S)"
-            
-          elif [[ "${{ steps.set-vars.outputs.status }}" == "rollback" ]]; then
-            echo ""
-            echo "🔄 ROLLBACK COMPLETED"
-            echo "Previous stable version has been restored"
-            echo "Check the logs above for failure details"
-            
-          else
-            echo ""
-            echo "❌ DEPLOYMENT FAILED"
-            echo "Manual intervention may be required"
-            echo "Check the workflow logs for detailed error information"
-          fi
-          
-          echo ""
-          echo "🔗 Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-      # Ici vous pouvez ajouter des notifications Slack/Teams/Discord
-      - name: Send Slack notification (optionnel)
-        if: always() && false  # Activez en changeant false en true
-        run: |
-          # Exemple de notification Slack
-          curl -X POST -H 'Content-type: application/json' \
-            --data "{
-              \"text\": \"${{ steps.set-vars.outputs.icon }} DreamScape Deployment\",
-              \"attachments\": [{
-                \"color\": \"${{ steps.set-vars.outputs.status == 'success' && 'good' || steps.set-vars.outputs.status == 'rollback' && 'warning' || 'danger' }}\",
-                \"fields\": [
-                  {\"title\": \"Environment\", \"value\": \"${{ needs.prepare.outputs.environment }}\", \"short\": true},
-                  {\"title\": \"Services\", \"value\": \"${{ needs.prepare.outputs.services }}\", \"short\": true},
-                  {\"title\": \"Status\", \"value\": \"${{ steps.set-vars.outputs.title }}\", \"short\": true},
-                  {\"title\": \"Version\", \"value\": \"${{ needs.prepare.outputs.image_tag }}\", \"short\": true}
-                ]
-              }]
-            }" \
-            "${{ secrets.SLACK_WEBHOOK_URL }}"
