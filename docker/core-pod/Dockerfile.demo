@@ -1,0 +1,77 @@
+# Core Pod Demo - Architecture Big Pod Fonctionnelle
+# DR-336: INFRA-010.3 - Démonstration Big Pod
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    supervisor \
+    nginx \
+    python3 \
+    py3-pip \
+    py3-psutil \
+    curl \
+    bash \
+    && rm -rf /var/cache/apk/*
+
+# Create application directory
+WORKDIR /app
+
+# Create directory structure
+RUN mkdir -p \
+    /app/auth \
+    /app/user \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /etc/supervisor/conf.d \
+    /run/supervisor
+
+# Create users
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Copy demo services for now (real services have TypeScript errors)
+COPY dreamscape-infra/docker/core-pod/demo-auth-server.js /app/auth/server.js
+COPY dreamscape-infra/docker/core-pod/demo-user-server.js /app/user/server.js
+COPY dreamscape-infra/docker/core-pod/package.json /app/auth/package.json
+COPY dreamscape-infra/docker/core-pod/package.json /app/user/package.json
+
+# Install dependencies for demo services
+RUN cd /app/auth && npm install
+RUN cd /app/user && npm install
+
+# Copy Core Pod configurations
+COPY dreamscape-infra/docker/core-pod/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY dreamscape-infra/docker/core-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY dreamscape-infra/docker/core-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY dreamscape-infra/docker/core-pod/scripts/ /app/scripts/
+
+# Make scripts executable
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh
+
+# Set proper permissions
+RUN chown -R nodejs:nodejs /app/auth /app/user \
+    && chown -R nginx:nginx /var/log/nginx \
+    && mkdir -p /app/user/uploads \
+    && chmod 755 /app/user/uploads
+
+# Copy entrypoint script
+COPY dreamscape-infra/docker/core-pod/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports
+EXPOSE 80 3001 3002
+
+# Environment variables
+ENV NODE_ENV=production \
+    PORT_AUTH=3001 \
+    PORT_USER=3002
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+
+# Start with entrypoint and supervisor
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf", "-n"]

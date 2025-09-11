@@ -1,0 +1,4 @@
+requests>=2.31.0
+PyYAML>=6.0
+pathlib2>=2.3.7
+python-dateutil>=2.8.2

@@ -1,0 +1,16 @@
+{
+  "name": "dreamscape-core-pod-demo",
+  "version": "1.0.0",
+  "description": "DreamScape Core Pod Demo Services",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["dreamscape", "core-pod", "big-pod"],
+  "author": "DreamScape Team",
+  "license": "MIT"
+}

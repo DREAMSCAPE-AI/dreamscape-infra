@@ -4,6 +4,7 @@
 
 version: '3.8'
 
+
 services:
   # MongoDB Database
   mongodb:
@@ -19,6 +20,7 @@ services:
     volumes:
       - mongodb_data:/data/db
       - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+
     networks:
       - core-pod-network
     healthcheck:
@@ -51,6 +53,7 @@ services:
     build:
       context: ./dreamscape-infrastructure/core-pod
       dockerfile: Dockerfile
+
     container_name: dreamscape-core-pod
     restart: unless-stopped
     ports:
@@ -102,6 +105,7 @@ services:
       
       # Configuration files (for development)
       - ./dreamscape-infrastructure/core-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+
       
       # Health status files (for external monitoring)
       - core_pod_status:/tmp
@@ -218,3 +222,4 @@ networks:
     ipam:
       config:
         - subnet: 172.22.0.0/16
+

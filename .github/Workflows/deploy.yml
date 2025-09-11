@@ -67,6 +67,7 @@ jobs:
     else
       environment="${{ github.event.inputs.environment }}"
     fi
+
           
           echo "environment=$environment" >> $GITHUB_OUTPUT
           

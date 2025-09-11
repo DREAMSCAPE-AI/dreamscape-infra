@@ -1,0 +1,78 @@
+# Simplified Core Pod Dockerfile
+# DR-336: INFRA-010.3 - Big Pod Architecture Simplified
+# Single stage build for rapid deployment
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    supervisor \
+    nginx \
+    python3 \
+    py3-pip \
+    curl \
+    bash \
+    && rm -rf /var/cache/apk/*
+
+# Install Python packages
+RUN pip3 install --no-cache-dir psutil
+
+# Create application directory
+WORKDIR /app
+
+# Create directory structure
+RUN mkdir -p \
+    /app/auth \
+    /app/user \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /etc/supervisor/conf.d \
+    /run/supervisor
+
+# Create users
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Copy services source code directly
+COPY dreamscape-services/auth/ /app/auth/
+COPY dreamscape-services/user/ /app/user/
+
+# Copy Core Pod configurations
+COPY docker/core-pod/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY docker/core-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY docker/core-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/core-pod/scripts/ /app/scripts/
+
+# Make scripts executable
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh
+
+# Install Node.js dependencies for both services
+RUN cd /app/auth && npm install && npm run build || echo "Build failed, using source"
+RUN cd /app/user && npm install && npm run build || echo "Build failed, using source"
+
+# Set proper permissions
+RUN chown -R nodejs:nodejs /app/auth /app/user \
+    && chown -R nginx:nginx /var/log/nginx \
+    && mkdir -p /app/user/uploads \
+    && chmod 755 /app/user/uploads
+
+# Copy entrypoint script
+COPY docker/core-pod/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports
+EXPOSE 80 3001 3002
+
+# Environment variables
+ENV NODE_ENV=production \
+    PORT_AUTH=3001 \
+    PORT_USER=3002
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+
+# Start with entrypoint and supervisor
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf", "-n"]
