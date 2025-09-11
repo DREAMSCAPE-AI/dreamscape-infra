@@ -7,7 +7,7 @@ on:
   # Garder les autres triggers existants
   repository_dispatch:
     types: [deploy-images]
-  
+    
   workflow_dispatch:
     # ... tes inputs existants
     inputs:
