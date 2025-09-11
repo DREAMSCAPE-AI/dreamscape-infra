@@ -3,7 +3,7 @@ on:
   repository_dispatch:
     types: 
       - build-frontend-image
-      - build-backend-imageS
+      - build-backend-image
       - build-all-images
   workflow_dispatch:
     inputs:
