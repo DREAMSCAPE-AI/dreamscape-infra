@@ -1,11 +1,15 @@
 name: CD Pipeline - Deploy to Oracle Cloud
 on:
-  # Déclenchement automatique après build des images
+  # Déclenchement automatique sur push vers main
+  push:
+    branches: [ main ]  # ou master selon ta branche principale
+  
+  # Garder les autres triggers existants
   repository_dispatch:
     types: [deploy-images]
   
-  # Déclenchement manuel
   workflow_dispatch:
+    # ... tes inputs existants
     inputs:
       environment:
         description: 'Environment à déployer'
