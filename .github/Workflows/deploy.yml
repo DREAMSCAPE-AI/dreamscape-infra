@@ -2,14 +2,13 @@ name: CD Pipeline - Deploy to Oracle Cloud
 on:
   # Déclenchement automatique sur push vers main
   push:
-    branches: [ main ]  # ou master selon ta branche principale
+    branches: [ main ]
   
   # Garder les autres triggers existants
   repository_dispatch:
     types: [deploy-images]
     
   workflow_dispatch:
-    # ... tes inputs existants
     inputs:
       environment:
         description: 'Environment à déployer'
@@ -58,16 +57,15 @@ jobs:
       ssh_key: ${{ steps.set-env.outputs.ssh_key }}
     steps:
       - name: Set environment, VM host and SSH key
-  id: set-env
-  run: |
-    if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-      environment="staging"
-    elif [[ "${{ github.event_name }}" == "push" ]]; then
-      environment="staging"  # ou "dev" selon tes préférences
-    else
-      environment="${{ github.event.inputs.environment }}"
-    fi
-
+        id: set-env
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            environment="staging"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            environment="staging"
+          else
+            environment="${{ github.event.inputs.environment }}"
+          fi
           
           echo "environment=$environment" >> $GITHUB_OUTPUT
           
