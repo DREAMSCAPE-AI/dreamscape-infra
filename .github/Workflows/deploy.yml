@@ -6,6 +6,7 @@ on:
   repository_dispatch:
     types: [deploy-images]
   workflow_dispatch:
+    # ... tes inputs existants
     inputs:
       environment:
         description: 'Environment à déployer'
@@ -53,6 +54,7 @@ jobs:
       ssh_key: ${{ steps.set-env.outputs.ssh_key }}
     steps:
       - name: Set environment, VM host and SSH key
+
         id: set-env
         run: |
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
