@@ -1,0 +1,81 @@
+# Business Pod Demo - Architecture Big Pod Fonctionnelle
+# DR-327: INFRA-011 - Démonstration Big Pod
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    supervisor \
+    python3 \
+    py3-pip \
+    py3-psutil \
+    curl \
+    bash \
+    && rm -rf /var/cache/apk/*
+
+# Create application directory
+WORKDIR /app
+
+# Create directory structure
+RUN mkdir -p \
+    /app/voyage \
+    /app/ai \
+    /app/payment \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /etc/supervisor/conf.d \
+    /run/supervisor
+
+# Create users
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Copy demo services for now (real services have TypeScript errors)
+COPY dreamscape-infra/docker/business-pod/demo-voyage-server.js /app/voyage/server.js
+COPY dreamscape-infra/docker/business-pod/demo-ai-server.js /app/ai/server.js
+COPY dreamscape-infra/docker/business-pod/demo-payment-server.js /app/payment/server.js
+COPY dreamscape-infra/docker/business-pod/package.json /app/voyage/package.json
+COPY dreamscape-infra/docker/business-pod/package.json /app/ai/package.json
+COPY dreamscape-infra/docker/business-pod/package.json /app/payment/package.json
+
+# Install dependencies for demo services
+RUN cd /app/voyage && npm install
+RUN cd /app/ai && npm install
+RUN cd /app/payment && npm install
+
+# Copy Business Pod configurations
+COPY dreamscape-infra/docker/business-pod/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY dreamscape-infra/docker/business-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY dreamscape-infra/docker/business-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY dreamscape-infra/docker/business-pod/scripts/ /app/scripts/
+
+# Make scripts executable
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh
+
+# Set proper permissions
+RUN chown -R nodejs:nodejs /app/voyage /app/ai /app/payment \
+    && chown -R nginx:nginx /var/log/nginx \
+    && mkdir -p /app/user/uploads \
+    && chmod 755 /app/user/uploads
+
+# Copy entrypoint script
+COPY dreamscape-infra/docker/business-pod/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports
+EXPOSE 3003 3004 3005
+
+# Environment variables
+ENV NODE_ENV=production \
+    PORT_VOYAGe=3003 \
+    PORT_AI=3004 \
+    PORT_PAYMENT=3005 
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+
+# Start with entrypoint and supervisor
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf", "-n"]
