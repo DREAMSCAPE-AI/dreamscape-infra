@@ -1,5 +1,6 @@
 ---
 name: CD Pipeline - Deploy to Oracle Cloud
+
 on:
   push:
     branches: [main]
@@ -344,7 +345,8 @@ jobs:
       - name: Set notification variables
         id: set-vars
         run: |
-          if [[ "${{ needs.deploy.result }}" == "success" && "${{ needs.post-deployment-tests.result }}" == "success" ]]; then
+          if [[ "${{ needs.deploy.result }}" == "success" && "${{ needs.post-deployment-tests.result }}" == "success" ]]; 
+          then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "icon=success" >> $GITHUB_OUTPUT
             echo "title=DEPLOYMENT SUCCESSFUL" >> $GITHUB_OUTPUT
