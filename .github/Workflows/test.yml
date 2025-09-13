@@ -1,4 +1,5 @@
-name: Test Workflow
+---
+name: Simple CD Test
 on:
   push:
     branches: [main]
@@ -8,5 +9,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Hello
-        run: echo "Hello World, i'm testing"
+      - uses: actions/checkout@v4
+      - name: Test
+        run: echo "CD workflow works!"
