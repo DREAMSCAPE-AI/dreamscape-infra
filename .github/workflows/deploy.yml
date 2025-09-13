@@ -2,8 +2,6 @@ name: CD Pipeline - Deploy to Oracle Cloud
 on:
   push:
     branches: [main]
-  repository_dispatch:
-    types: [deploy-images]
   workflow_dispatch:
     inputs:
       environment:
@@ -51,8 +49,6 @@ jobs:
         run: |
           # Environnement
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            ENVIRONMENT="staging"
-          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
             ENVIRONMENT="staging"
           else
             ENVIRONMENT="${{ github.event.inputs.environment }}"
