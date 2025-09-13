@@ -1,9 +1,7 @@
-name: CI/CD Pipeline - Build & Deploy to Oracle Cloud
+name: CD Pipeline - Deploy to Oracle Cloud
 on:
   push:
     branches: [main]
-  repository_dispatch:
-    types: [deploy-images]
   workflow_dispatch:
     inputs:
       environment:
@@ -16,7 +14,7 @@ on:
           - staging
           - production
       services:
-        description: 'Services à traiter'
+        description: 'Services à déployer'
         required: false
         default: 'all'
         type: choice
@@ -25,14 +23,10 @@ on:
           - frontend
           - backend
       image_tag:
-        description: 'Tag des images Docker (si skip build)'
+        description: 'Tag des images Docker'
         required: false
+        default: 'latest'
         type: string
-      skip_build:
-        description: 'Skip le build et utiliser des images existantes'
-        required: false
-        default: false
-        type: boolean
 
 env:
   DOCKER_IMAGE_FRONT: dreamscape/frontend
@@ -49,44 +43,24 @@ jobs:
       ssh_key: ${{ steps.setup.outputs.ssh_key }}
       deploy_frontend: ${{ steps.setup.outputs.deploy_frontend }}
       deploy_backend: ${{ steps.setup.outputs.deploy_backend }}
-      build_frontend: ${{ steps.setup.outputs.build_frontend }}
-      build_backend: ${{ steps.setup.outputs.build_backend }}
-      skip_build: ${{ steps.setup.outputs.skip_build }}
     steps:
-      - name: Setup parameters
+      - name: Setup deployment parameters
         id: setup
         run: |
           # Environnement
           if [[ "${{ github.event_name }}" == "push" ]]; then
             ENVIRONMENT="staging"
-          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            ENVIRONMENT="staging"
           else
             ENVIRONMENT="${{ github.event.inputs.environment }}"
           fi
           
-          # Services
-          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            SERVICES="${{ github.event.client_payload.services || 'all' }}"
-          else
-            SERVICES="${{ github.event.inputs.services || 'all' }}"
-          fi
-          
-          # Skip build
-          SKIP_BUILD="${{ github.event.inputs.skip_build || 'false' }}"
-          
-          # Tag des images
-          if [[ "$SKIP_BUILD" == "true" ]]; then
-            IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
-          else
-            IMAGE_TAG="${{ github.sha }}"
-            IMAGE_TAG="${IMAGE_TAG:0:7}"
-          fi
+          # Services et tag
+          SERVICES="${{ github.event.inputs.services || 'all' }}"
+          IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
           
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "services=${SERVICES}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "skip_build=${SKIP_BUILD}" >> $GITHUB_OUTPUT
           
           # Configuration par environnement
           case ${ENVIRONMENT} in
@@ -104,77 +78,20 @@ jobs:
               ;;
           esac
           
-          # Services à traiter
+          # Services à déployer
           if [[ "${SERVICES}" == "all" ]]; then
             echo "deploy_frontend=true" >> $GITHUB_OUTPUT
             echo "deploy_backend=true" >> $GITHUB_OUTPUT
-            echo "build_frontend=true" >> $GITHUB_OUTPUT
-            echo "build_backend=true" >> $GITHUB_OUTPUT
           elif [[ "${SERVICES}" == "frontend" ]]; then
             echo "deploy_frontend=true" >> $GITHUB_OUTPUT
             echo "deploy_backend=false" >> $GITHUB_OUTPUT
-            echo "build_frontend=true" >> $GITHUB_OUTPUT
-            echo "build_backend=false" >> $GITHUB_OUTPUT
           elif [[ "${SERVICES}" == "backend" ]]; then
             echo "deploy_frontend=false" >> $GITHUB_OUTPUT
             echo "deploy_backend=true" >> $GITHUB_OUTPUT
-            echo "build_frontend=false" >> $GITHUB_OUTPUT
-            echo "build_backend=true" >> $GITHUB_OUTPUT
           fi
 
-  build:
-    needs: [prepare]
-    if: needs.prepare.outputs.skip_build == 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download frontend source
-        if: needs.prepare.outputs.build_frontend == 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: DREAMSCAPE-AI/dreamscape-frontend
-          token: ${{ secrets.CI_CLONE_TOKEN }}
-          path: ./frontend
-
-      - name: Download backend source
-        if: needs.prepare.outputs.build_backend == 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: DREAMSCAPE-AI/dreamscape-services
-          token: ${{ secrets.CI_CLONE_TOKEN }}
-          path: ./backend
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Registry
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and Push Frontend
-        if: needs.prepare.outputs.build_frontend == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ${{ env.DOCKER_IMAGE_FRONT }}:${{ needs.prepare.outputs.image_tag }}
-            ${{ env.DOCKER_IMAGE_FRONT }}:latest
-
-      - name: Build and Push Backend
-        if: needs.prepare.outputs.build_backend == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ${{ env.DOCKER_IMAGE_BACK }}:${{ needs.prepare.outputs.image_tag }}
-            ${{ env.DOCKER_IMAGE_BACK }}:latest
-
   deploy:
-    needs: [prepare, build]
-    if: always() && (needs.build.result == 'success' || needs.prepare.outputs.skip_build == 'true')
+    needs: [prepare]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,6 +99,13 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
+          
+          VM_HOST="${{ needs.prepare.outputs.vm_host }}"
+          if [ -z "$VM_HOST" ]; then
+            echo "Error: VM host is empty for environment ${{ needs.prepare.outputs.environment }}"
+            exit 1
+          fi
+          
           case "${{ needs.prepare.outputs.ssh_key }}" in
             "SSH_PRIVATE_KEY_PRODUCTION")
               echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
@@ -194,7 +118,7 @@ jobs:
               ;;
           esac
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Make scripts executable
         run: |
@@ -218,61 +142,22 @@ jobs:
             "${{ needs.prepare.outputs.image_tag }}" \
             "${{ needs.prepare.outputs.vm_host }}"
 
-  rollback:
-    needs: [prepare, deploy]
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup SSH for rollback
-        run: |
-          mkdir -p ~/.ssh
-          case "${{ needs.prepare.outputs.ssh_key }}" in
-            "SSH_PRIVATE_KEY_PRODUCTION")
-              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_STAGING")
-              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_DEV"|*)
-              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
-              ;;
-          esac
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ needs.prepare.outputs.vm_host }} >> ~/.ssh/known_hosts
-
-      - name: Execute rollback
-        run: |
-          chmod +x scripts/rollback.sh
-          ./scripts/rollback.sh \
-            "${{ needs.prepare.outputs.environment }}" \
-            "${{ needs.prepare.outputs.services }}" \
-            "${{ needs.prepare.outputs.vm_host }}"
-
   summary:
-    needs: [prepare, build, deploy, rollback]
+    needs: [prepare, deploy]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Pipeline Summary
+      - name: Deployment Summary
         run: |
-          echo "CI/CD PIPELINE SUMMARY"
-          echo "======================"
+          echo "DEPLOYMENT SUMMARY"
+          echo "=================="
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Services: ${{ needs.prepare.outputs.services }}"
           echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo "Skip build: ${{ needs.prepare.outputs.skip_build }}"
-          echo ""
-          echo "Results:"
-          echo "- Build: ${{ needs.build.result }}"
-          echo "- Deploy: ${{ needs.deploy.result }}"
-          echo "- Rollback: ${{ needs.rollback.result }}"
+          echo "Deploy result: ${{ needs.deploy.result }}"
           
           if [[ "${{ needs.deploy.result }}" == "success" ]]; then
-            echo "✅ Pipeline successful!"
-          elif [[ "${{ needs.rollback.result }}" == "success" ]]; then
-            echo "🔄 Deployment failed but rollback successful"
+            echo "✅ Deployment successful!"
           else
-            echo "❌ Pipeline failed"
+            echo "❌ Deployment failed!"
           fi
