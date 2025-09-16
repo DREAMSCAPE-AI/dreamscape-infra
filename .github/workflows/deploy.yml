@@ -70,6 +70,7 @@ jobs:
           echo "services=${SERVICES}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           
+
           # Services à déployer
           if [[ "${SERVICES}" == "all" ]]; then
             echo "deploy_frontend=true" >> $GITHUB_OUTPUT
@@ -107,6 +108,7 @@ jobs:
             "production")
               VM_HOST="$VM_HOST_PRODUCTION"
               echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
               ;;
             "staging")
               VM_HOST="$VM_HOST_STAGING"
@@ -117,7 +119,7 @@ jobs:
               echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
               ;;
           esac
-          
+         
           if [ -z "$VM_HOST" ]; then
             echo "Error: VM host is empty for environment $ENV"
             exit 1
@@ -136,6 +138,7 @@ jobs:
           chmod +x scripts/deploy-frontend.sh
           chmod +x scripts/deploy-backend.sh
           chmod +x scripts/rollback.sh
+          echo "Scripts made executable"
 
       - name: Deploy Frontend
         if: needs.prepare.outputs.deploy_frontend == 'true'
