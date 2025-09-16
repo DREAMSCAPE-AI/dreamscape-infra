@@ -41,8 +41,6 @@ jobs:
       environment: ${{ steps.setup.outputs.environment }}
       services: ${{ steps.setup.outputs.services }}
       image_tag: ${{ steps.setup.outputs.image_tag }}
-      vm_host: ${{ steps.setup.outputs.vm_host }}
-      ssh_key: ${{ steps.setup.outputs.ssh_key }}
       deploy_frontend: ${{ steps.setup.outputs.deploy_frontend }}
       deploy_backend: ${{ steps.setup.outputs.deploy_backend }}
     steps:
@@ -76,39 +74,6 @@ jobs:
           echo "services=${SERVICES}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           
-          # Debug
-          echo "Debug: Environment = ${ENVIRONMENT}"
-          echo "Debug: Services = ${SERVICES}"
-          echo "Debug: Image tag = ${IMAGE_TAG}"
-          
-          # Configuration par environnement
-          case ${ENVIRONMENT} in
-            "production")
-              VM_HOST="${{ secrets.VM_HOST_PRODUCTION }}"
-              SSH_KEY="SSH_PRIVATE_KEY_PRODUCTION"
-              ;;
-            "staging")
-              VM_HOST="${{ secrets.VM_HOST_STAGING }}"
-              SSH_KEY="SSH_PRIVATE_KEY_STAGING"
-              ;;
-            "dev"|*)
-              VM_HOST="${{ secrets.VM_HOST_DEV }}"
-              SSH_KEY="SSH_PRIVATE_KEY_DEV"
-              ;;
-          esac
-          
-          echo "vm_host=${VM_HOST}" >> $GITHUB_OUTPUT
-          echo "ssh_key=${SSH_KEY}" >> $GITHUB_OUTPUT
-          
-          # Vérification
-          if [ -z "${VM_HOST}" ]; then
-            echo "ERROR: VM_HOST is empty for environment ${ENVIRONMENT}"
-            exit 1
-          fi
-          
-          echo "Debug: VM_HOST = ${VM_HOST}"
-          echo "Debug: SSH_KEY = ${SSH_KEY}"
-          
           # Services à déployer
           if [[ "${SERVICES}" == "all" ]]; then
             echo "deploy_frontend=true" >> $GITHUB_OUTPUT
@@ -128,28 +93,42 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup SSH
+        env:
+          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
+          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
+          VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
+          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
+          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
         run: |
           mkdir -p ~/.ssh
           
-          VM_HOST="${{ needs.prepare.outputs.vm_host }}"
+          ENV="${{ needs.prepare.outputs.environment }}"
+          echo "Environment: $ENV"
+          
+          # Sélectionner le bon host et la bonne clé selon l'environnement
+          case "$ENV" in
+            "production")
+              VM_HOST="$VM_HOST_PRODUCTION"
+              echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+              ;;
+            "staging")
+              VM_HOST="$VM_HOST_STAGING"
+              echo "$SSH_KEY_STAGING" > ~/.ssh/id_rsa
+              ;;
+            "dev"|*)
+              VM_HOST="$VM_HOST_DEV"
+              echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
+              ;;
+          esac
+          
           if [ -z "$VM_HOST" ]; then
-            echo "Error: VM host is empty"
+            echo "Error: VM host is empty for environment $ENV"
             exit 1
           fi
           
-          echo "Setting up SSH for host: $VM_HOST"
-          
-          case "${{ needs.prepare.outputs.ssh_key }}" in
-            "SSH_PRIVATE_KEY_PRODUCTION")
-              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_STAGING")
-              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_DEV"|*)
-              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
-              ;;
-          esac
+          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
+          echo "Using VM host: $VM_HOST"
           
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
@@ -161,7 +140,6 @@ jobs:
           chmod +x scripts/deploy-frontend.sh
           chmod +x scripts/deploy-backend.sh
           chmod +x scripts/rollback.sh
-          echo "Scripts made executable"
 
       - name: Deploy Frontend
         if: needs.prepare.outputs.deploy_frontend == 'true'
@@ -169,12 +147,12 @@ jobs:
           echo "Deploying frontend..."
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo "VM host: ${{ needs.prepare.outputs.vm_host }}"
+          echo "VM host: $VM_HOST"
           
           ./scripts/deploy-frontend.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.image_tag }}" \
-            "${{ needs.prepare.outputs.vm_host }}"
+            "$VM_HOST"
 
       - name: Deploy Backend
         if: needs.prepare.outputs.deploy_backend == 'true'
@@ -182,12 +160,12 @@ jobs:
           echo "Deploying backend..."
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo "VM host: ${{ needs.prepare.outputs.vm_host }}"
+          echo "VM host: $VM_HOST"
           
           ./scripts/deploy-backend.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.image_tag }}" \
-            "${{ needs.prepare.outputs.vm_host }}"
+            "$VM_HOST"
 
   rollback:
     needs: [prepare, deploy]
@@ -197,26 +175,41 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup SSH for rollback
+        env:
+          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
+          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
+          VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
+          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
+          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
         run: |
           mkdir -p ~/.ssh
           
-          VM_HOST="${{ needs.prepare.outputs.vm_host }}"
+          ENV="${{ needs.prepare.outputs.environment }}"
+          echo "Environment for rollback: $ENV"
+          
+          case "$ENV" in
+            "production")
+              VM_HOST="$VM_HOST_PRODUCTION"
+              echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+              ;;
+            "staging")
+              VM_HOST="$VM_HOST_STAGING"
+              echo "$SSH_KEY_STAGING" > ~/.ssh/id_rsa
+              ;;
+            "dev"|*)
+              VM_HOST="$VM_HOST_DEV"
+              echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
+              ;;
+          esac
+          
           if [ -z "$VM_HOST" ]; then
-            echo "Error: VM host is empty for rollback"
+            echo "Error: VM host is empty for rollback in environment $ENV"
             exit 1
           fi
           
-          case "${{ needs.prepare.outputs.ssh_key }}" in
-            "SSH_PRIVATE_KEY_PRODUCTION")
-              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_STAGING")
-              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ~/.ssh/id_rsa
-              ;;
-            "SSH_PRIVATE_KEY_DEV"|*)
-              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/id_rsa
-              ;;
-          esac
+          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
+          echo "Rollback VM host: $VM_HOST"
           
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
@@ -228,7 +221,7 @@ jobs:
           ./scripts/rollback.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.services }}" \
-            "${{ needs.prepare.outputs.vm_host }}"
+            "$VM_HOST"
 
   summary:
     needs: [prepare, deploy, rollback]
@@ -242,7 +235,6 @@ jobs:
           echo "Environment: ${{ needs.prepare.outputs.environment }}"
           echo "Services: ${{ needs.prepare.outputs.services }}"
           echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo "VM Host: ${{ needs.prepare.outputs.vm_host }}"
           echo ""
           echo "Job Results:"
           echo "- Deploy: ${{ needs.deploy.result }}"
