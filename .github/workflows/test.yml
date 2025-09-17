@@ -1,12 +1,49 @@
-name: Test Workflow
+name: Test SSH Connection
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+    inputs:
+      environment:
+        description: 'Environment à tester'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
 
 jobs:
-  test:
+  test-ssh:
     runs-on: ubuntu-latest
     steps:
-      - name: Hello World
-        run: echo "Test workflow is ok now!"
+      - name: Test SSH connection
+        env:
+          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
+          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
+        run: |
+          mkdir -p ~/.ssh
+          
+          ENV="${{ github.event.inputs.environment }}"
+          echo "Testing environment: $ENV"
+          
+          case "$ENV" in
+            "staging")
+              echo "$SSH_KEY_STAGING" > ~/.ssh/id_rsa
+              VM_HOST="79.72.27.180"
+              ;;
+            "dev")
+              echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
+              VM_HOST="144.24.196.120"
+              ;;
+            "production")
+              echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+              VM_HOST="84.235.237.183"
+              ;;
+          esac
+          
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $VM_HOST >> ~/.ssh/known_hosts
+          
+          echo "Testing SSH connection to $VM_HOST..."
+          ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "echo 'SSH test successful for $ENV environment'"
