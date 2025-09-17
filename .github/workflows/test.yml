@@ -9,4 +9,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hello World
-        run: echo "Test workflow is working!"
+        run: echo "Test workflow is ok now!"
