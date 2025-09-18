@@ -127,6 +127,30 @@ jobs:
           echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> $GITHUB_ENV
           echo "✅ Using host: $VM_HOST with key: $SSH_KEY_FILE"
 
+      - name: Setup SSH key and known_hosts
+        run: |
+          case "${{ needs.prepare.outputs.environment }}" in
+            "production")
+              SSH_KEY_FILE="cle_prod.key"
+              VM_HOST="${{ secrets.VM_HOST_PRODUCTION }}"
+              ;;
+            "staging")
+              SSH_KEY_FILE="cle_staging.key"
+              VM_HOST="${{ secrets.VM_HOST_STAGING }}"
+              ;;
+            "dev"|*)
+              SSH_KEY_FILE="cle_dev.key"
+              VM_HOST="${{ secrets.VM_HOST_DEV }}"
+              ;;
+          esac
+
+          echo "✅ Using host: $VM_HOST with key: $SSH_KEY_FILE"
+
+          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
+          echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> $GITHUB_ENV
+
+          # FIX: créer ~/.ssh avant le keyscan
+          mkdir -p ~/.ssh
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Make scripts executable
