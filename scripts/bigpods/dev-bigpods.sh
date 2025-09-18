@@ -238,10 +238,7 @@ setup_repositories() {
             if confirm_action "Clone $repo repository?"; then
                 log_info "Cloning $repo..."
 
-                # This would need actual repository URLs
-                # git clone "https://github.com/dreamscape/$repo.git" "$repo_path"
-
-                log_warning "Repository cloning not implemented - URLs needed"
+                git clone "https://github.com/dreamscape/$repo.git" "$repo_path"
             fi
         else
             log_success "Repository $repo exists"
