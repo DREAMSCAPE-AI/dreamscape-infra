@@ -1,0 +1,547 @@
+name: 🚀 DreamScape Big Pods - Continuous Deployment
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Version to deploy (optional)'
+        required: false
+        type: string
+      deployment_strategy:
+        description: 'Deployment Strategy'
+        required: true
+        default: 'rolling'
+        type: choice
+        options:
+          - rolling
+          - blue-green
+          - canary
+      force_deployment:
+        description: 'Force deployment (skip validations)'
+        required: false
+        default: false
+        type: boolean
+
+# Prevent concurrent deployments
+concurrency:
+  group: deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Deployment Configuration
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  DEPLOYMENT_TIMEOUT: 1800
+
+  # Registry Configuration
+  REGISTRY_URL: ghcr.io
+  REGISTRY_NAMESPACE: dreamscape
+
+  # Monitoring Configuration
+  MONITORING_ENABLED: true
+  HEALTH_CHECK_TIMEOUT: 300
+
+jobs:
+  # ============================================================================
+  # Pre-deployment: Validation and preparation
+  # ============================================================================
+  pre-deployment:
+    name: 🔍 Pre-deployment Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      deployment-version: ${{ steps.version.outputs.version }}
+      target-environment: ${{ steps.environment.outputs.environment }}
+      deployment-strategy: ${{ steps.strategy.outputs.strategy }}
+      should-deploy: ${{ steps.validation.outputs.should-deploy }}
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🎯 Determine Target Environment
+        id: environment
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🏷️ Determine Deployment Version
+        id: version
+        run: |
+          if [[ "${{ inputs.version }}" != "" ]]; then
+            version="${{ inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            version="${{ github.ref_name }}"
+          else
+            version="$(git rev-parse --short HEAD)"
+          fi
+
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "📦 Deployment version: $version"
+
+      - name: 🎯 Determine Deployment Strategy
+        id: strategy
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "strategy=${{ inputs.deployment_strategy }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.environment.outputs.environment }}" == "production" ]]; then
+            echo "strategy=blue-green" >> $GITHUB_OUTPUT
+          else
+            echo "strategy=rolling" >> $GITHUB_OUTPUT
+          fi
+
+      - name: ✅ Validate Deployment Prerequisites
+        id: validation
+        run: |
+          echo "🔍 Validating deployment prerequisites..."
+
+          target_env="${{ steps.environment.outputs.environment }}"
+          version="${{ steps.version.outputs.version }}"
+
+          # Check if this is a valid deployment
+          should_deploy="true"
+
+          # Production validations
+          if [[ "$target_env" == "production" ]]; then
+            # Must be a tag for production
+            if [[ "${{ github.ref }}" != refs/tags/v* ]] && [[ "${{ inputs.force_deployment }}" != "true" ]]; then
+              echo "❌ Production deployments require version tags"
+              should_deploy="false"
+            fi
+
+            # Version must follow semver
+            if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "${{ inputs.force_deployment }}" != "true" ]]; then
+              echo "❌ Production version must follow semantic versioning (v1.2.3)"
+              should_deploy="false"
+            fi
+          fi
+
+          echo "should-deploy=$should_deploy" >> $GITHUB_OUTPUT
+
+          if [[ "$should_deploy" == "true" ]]; then
+            echo "✅ Prerequisites validated"
+            echo "🎯 Environment: $target_env"
+            echo "📦 Version: $version"
+            echo "🚀 Strategy: ${{ steps.strategy.outputs.strategy }}"
+          else
+            echo "❌ Prerequisites validation failed"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Build and Push: Build images and push to registry
+  # ============================================================================
+  build-and-push:
+    name: 🏗️ Build & Push Images
+    runs-on: ubuntu-latest
+    needs: pre-deployment
+    if: needs.pre-deployment.outputs.should-deploy == 'true'
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        pod: [core, business, experience]
+      fail-fast: false
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏗️ Build ${{ matrix.pod }} Pod
+        working-directory: scripts/bigpods
+        timeout-minutes: 20
+        run: |
+          echo "🏗️ Building ${{ matrix.pod }} pod..."
+
+          version="${{ needs.pre-deployment.outputs.deployment-version }}"
+
+          # Build with version tag
+          ./build-bigpods.sh \
+            --pod ${{ matrix.pod }} \
+            --version "$version" \
+            --push \
+            --verbose
+
+      - name: 🔍 Verify Image Push
+        run: |
+          echo "🔍 Verifying pushed image..."
+          version="${{ needs.pre-deployment.outputs.deployment-version }}"
+          image="${{ env.REGISTRY_URL }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.pod }}-pod:$version"
+
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "✅ Image successfully pushed: $image"
+          else
+            echo "❌ Image verification failed: $image"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Deploy to Staging: Always deploy to staging first
+  # ============================================================================
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, build-and-push]
+    if: needs.pre-deployment.outputs.should-deploy == 'true'
+    timeout-minutes: 20
+    environment: staging
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Deployment Environment
+        run: |
+          echo "🔧 Setting up staging deployment environment..."
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: 🚀 Deploy to Staging
+        working-directory: scripts/bigpods
+        timeout-minutes: 15
+        run: |
+          echo "🚀 Deploying to staging environment..."
+
+          version="${{ needs.pre-deployment.outputs.deployment-version }}"
+          strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
+
+          # Configure staging deployment
+          case "$strategy" in
+            "rolling")
+              deployment_args="--rolling"
+              ;;
+            "blue-green")
+              deployment_args="--blue-green"
+              ;;
+            "canary")
+              deployment_args="--canary --canary-percent 20"
+              ;;
+          esac
+
+          # Execute deployment
+          ./deploy-bigpods.sh \
+            --env staging \
+            --version "$version" \
+            $deployment_args \
+            --force \
+            --verbose
+
+      - name: 🏥 Post-deployment Health Check
+        working-directory: scripts/bigpods
+        timeout-minutes: 5
+        run: |
+          echo "🏥 Running post-deployment health checks..."
+
+          # Wait for services to be ready
+          sleep 30
+
+          # Run health checks
+          ./monitoring-bigpods.sh --mode health --env staging
+
+          if [[ $? -eq 0 ]]; then
+            echo "✅ Staging deployment healthy"
+          else
+            echo "❌ Staging deployment health check failed"
+            exit 1
+          fi
+
+      - name: 🧪 Run Smoke Tests
+        working-directory: scripts/bigpods
+        run: |
+          echo "🧪 Running staging smoke tests..."
+
+          # Basic connectivity tests
+          ./debug-bigpods.sh --mode connectivity --env staging
+
+          # API health tests
+          ./tests/run_all_tests.sh --integration --env staging --timeout 300
+
+  # ============================================================================
+  # Deploy to Production: Only if targeting production
+  # ============================================================================
+  deploy-production:
+    name: 🏭 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, build-and-push, deploy-staging]
+    if: |
+      needs.pre-deployment.outputs.should-deploy == 'true' &&
+      (needs.pre-deployment.outputs.target-environment == 'production' ||
+       startsWith(github.ref, 'refs/tags/v'))
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Production Environment
+        run: |
+          echo "🔧 Setting up production deployment environment..."
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: 🛡️ Pre-production Validation
+        working-directory: scripts/bigpods
+        run: |
+          echo "🛡️ Running pre-production validation..."
+
+          # Validate staging is healthy
+          ./monitoring-bigpods.sh --mode health --env staging
+
+          if [[ $? -ne 0 ]]; then
+            echo "❌ Staging is not healthy - aborting production deployment"
+            exit 1
+          fi
+
+          echo "✅ Staging validation passed"
+
+      - name: 💾 Backup Production
+        working-directory: scripts/bigpods
+        timeout-minutes: 10
+        run: |
+          echo "💾 Creating production backup before deployment..."
+
+          ./backup-bigpods.sh \
+            --type configs \
+            --s3-bucket dreamscape-production-backups \
+            --env production \
+            --force
+
+      - name: 🚀 Deploy to Production
+        working-directory: scripts/bigpods
+        timeout-minutes: 20
+        run: |
+          echo "🚀 Deploying to production environment..."
+
+          version="${{ needs.pre-deployment.outputs.deployment-version }}"
+          strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
+
+          # Configure production deployment
+          case "$strategy" in
+            "rolling")
+              deployment_args="--rolling"
+              ;;
+            "blue-green")
+              deployment_args="--blue-green"
+              ;;
+            "canary")
+              deployment_args="--canary --canary-percent 10"
+              ;;
+          esac
+
+          # Execute deployment with notifications
+          ./deploy-bigpods.sh \
+            --env production \
+            --version "$version" \
+            $deployment_args \
+            --notify \
+            --slack-webhook "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            --force \
+            --verbose
+
+      - name: 🏥 Production Health Validation
+        working-directory: scripts/bigpods
+        timeout-minutes: 10
+        run: |
+          echo "🏥 Validating production deployment health..."
+
+          # Extended health checks for production
+          ./monitoring-bigpods.sh --mode health --env production
+
+          # Wait and check again to ensure stability
+          sleep 60
+          ./monitoring-bigpods.sh --mode health --env production
+
+          if [[ $? -eq 0 ]]; then
+            echo "✅ Production deployment healthy and stable"
+          else
+            echo "❌ Production deployment health check failed"
+
+            # Auto-rollback on failure
+            echo "🔄 Initiating automatic rollback..."
+            ./deploy-bigpods.sh --env production --rollback --force
+            exit 1
+          fi
+
+      - name: 📊 Post-deployment Monitoring
+        working-directory: scripts/bigpods
+        timeout-minutes: 5
+        run: |
+          echo "📊 Setting up post-deployment monitoring..."
+
+          # Start extended monitoring
+          ./monitoring-bigpods.sh \
+            --mode alerts \
+            --env production \
+            --cpu-threshold 80 \
+            --memory-threshold 85 \
+            --webhook "${{ secrets.SLACK_WEBHOOK_URL }}" &
+
+  # ============================================================================
+  # Post-deployment: Validation and monitoring
+  # ============================================================================
+  post-deployment:
+    name: 📊 Post-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, deploy-staging, deploy-production]
+    if: always() && needs.pre-deployment.outputs.should-deploy == 'true'
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📊 Deployment Summary
+        run: |
+          echo "📊 DreamScape Big Pods Deployment Summary"
+          echo "========================================"
+          echo ""
+          echo "🎯 Target Environment: ${{ needs.pre-deployment.outputs.target-environment }}"
+          echo "📦 Version: ${{ needs.pre-deployment.outputs.deployment-version }}"
+          echo "🚀 Strategy: ${{ needs.pre-deployment.outputs.deployment-strategy }}"
+          echo ""
+          echo "📋 Deployment Results:"
+          echo "🚀 Staging: ${{ needs.deploy-staging.result }}"
+
+          if [[ "${{ needs.deploy-production.result }}" != "" ]]; then
+            echo "🏭 Production: ${{ needs.deploy-production.result }}"
+          fi
+
+      - name: 📧 Send Deployment Notification
+        if: always()
+        run: |
+          echo "📧 Sending deployment notification..."
+
+          if [[ "${{ needs.deploy-staging.result }}" == "success" ]]; then
+            if [[ "${{ needs.deploy-production.result }}" == "success" ]] || [[ "${{ needs.deploy-production.result }}" == "" ]]; then
+              echo "✅ Deployment completed successfully!"
+              status="success"
+            else
+              echo "⚠️ Production deployment failed, but staging succeeded"
+              status="warning"
+            fi
+          else
+            echo "❌ Deployment failed"
+            status="failure"
+          fi
+
+          # Store status for potential webhooks
+          echo "DEPLOYMENT_STATUS=$status" >> $GITHUB_ENV
+
+      - name: 🧹 Cleanup Old Images
+        if: success()
+        run: |
+          echo "🧹 Cleaning up old container images..."
+
+          # Keep last 5 versions
+          version="${{ needs.pre-deployment.outputs.deployment-version }}"
+
+          # This would integrate with actual registry cleanup
+          echo "🧹 Cleanup would remove images older than 5 versions"
+          echo "📦 Current version: $version"
+
+  # ============================================================================
+  # Rollback: Emergency rollback capability
+  # ============================================================================
+  emergency-rollback:
+    name: 🆘 Emergency Rollback
+    runs-on: ubuntu-latest
+    if: failure() && (needs.deploy-production.result == 'failure')
+    needs: [pre-deployment, deploy-production]
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🆘 Execute Emergency Rollback
+        working-directory: scripts/bigpods
+        run: |
+          echo "🆘 Executing emergency rollback..."
+
+          ./deploy-bigpods.sh \
+            --env production \
+            --rollback \
+            --force \
+            --notify \
+            --slack-webhook "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+      - name: 🏥 Verify Rollback Health
+        working-directory: scripts/bigpods
+        timeout-minutes: 5
+        run: |
+          echo "🏥 Verifying rollback health..."
+
+          sleep 30
+          ./monitoring-bigpods.sh --mode health --env production
+
+          if [[ $? -eq 0 ]]; then
+            echo "✅ Rollback successful - system healthy"
+          else
+            echo "❌ Rollback verification failed - manual intervention required"
+            exit 1
+          fi
+
+# ============================================================================
+# Workflow Status and Notifications
+# ============================================================================
+  workflow-status:
+    name: 📢 Workflow Status
+    runs-on: ubuntu-latest
+    needs: [post-deployment, emergency-rollback]
+    if: always()
+
+    steps:
+      - name: 📢 Final Status Report
+        run: |
+          echo "📢 DreamScape Big Pods CD - Final Status"
+          echo "======================================"
+
+          if [[ "${{ needs.post-deployment.result }}" == "success" ]]; then
+            echo "🎉 Deployment workflow completed successfully!"
+            echo "✅ All services deployed and validated"
+          elif [[ "${{ needs.emergency-rollback.result }}" == "success" ]]; then
+            echo "🔄 Deployment failed but rollback successful"
+            echo "⚠️ Please investigate deployment issues"
+          else
+            echo "❌ Deployment workflow failed"
+            echo "🆘 Manual intervention may be required"
+          fi
