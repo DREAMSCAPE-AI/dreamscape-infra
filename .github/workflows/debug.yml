@@ -1,0 +1,66 @@
+name: DEBUG SECRETS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug secrets and hosts
+        run: |
+          echo "=== DEBUGGING SECRETS ==="
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          
+          case "${{ github.event.inputs.environment }}" in
+            "production")
+              HOST="${{ secrets.VM_HOST_PRODUCTION }}"
+              KEY="${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}"
+              ;;
+            "staging")
+              HOST="${{ secrets.VM_HOST_STAGING }}"
+              KEY="${{ secrets.SSH_PRIVATE_KEY_STAGING }}"
+              ;;
+            "dev")
+              HOST="${{ secrets.VM_HOST_DEV }}"
+              KEY="${{ secrets.SSH_PRIVATE_KEY_DEV }}"
+              ;;
+          esac
+          
+          echo "Host check:"
+          if [ -z "$HOST" ]; then
+            echo "❌ HOST IS EMPTY!"
+          else
+            echo "✅ Host: ${HOST:0:10}... (truncated)"
+          fi
+          
+          echo "Key check:"
+          if [ -z "$KEY" ]; then
+            echo "❌ SSH KEY IS EMPTY!"
+          else
+            echo "✅ Key length: ${#KEY} characters"
+            echo "Key starts with: ${KEY:0:30}..."
+            echo "Key ends with: ...${KEY: -30}"
+          fi
+          
+          echo "=== INSTRUCTIONS ==="
+          if [ -z "$HOST" ] || [ -z "$KEY" ]; then
+            echo "🚨 PROBLEME TROUVE !"
+            echo "Allez dans Settings > Secrets and variables > Actions"
+            echo "Vérifiez que ces secrets existent et ne sont pas vides:"
+            ENV_UPPER=$(echo "${{ github.event.inputs.environment }}" | tr '[:lower:]' '[:upper:]')
+            echo "- VM_HOST_${ENV_UPPER}"
+            echo "- SSH_PRIVATE_KEY_${ENV_UPPER}"
+          else
+            echo "✅ Secrets semblent OK, problème probablement dans le format de clé"
+          fi
