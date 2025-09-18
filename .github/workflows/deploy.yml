@@ -1,4 +1,5 @@
 name: CD Pipeline - Deploy to Oracle Cloud
+
 on:
   push:
     branches: [main]
@@ -7,27 +8,27 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment à déployer'
+        description: "Environment à déployer"
         required: true
-        default: 'staging'
+        default: "staging"
         type: choice
         options:
           - dev
           - staging
           - production
       services:
-        description: 'Services à déployer'
+        description: "Services à déployer"
         required: false
-        default: 'all'
+        default: "all"
         type: choice
         options:
           - all
           - frontend
           - backend
       image_tag:
-        description: 'Tag des images Docker'
+        description: "Tag des images Docker"
         required: false
-        default: 'latest'
+        default: "latest"
         type: string
 
 env:
@@ -54,23 +55,23 @@ jobs:
           else
             ENVIRONMENT="${{ github.event.inputs.environment }}"
           fi
-          
+
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
             SERVICES="${{ github.event.client_payload.services || 'all' }}"
           else
             SERVICES="${{ github.event.inputs.services || 'all' }}"
           fi
-          
+
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
             IMAGE_TAG="${{ github.event.client_payload.commit_sha || 'latest' }}"
           else
             IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
           fi
-          
+
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "services=${SERVICES}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          
+
           if [[ "${SERVICES}" == "all" ]]; then
             echo "deploy_frontend=true" >> $GITHUB_OUTPUT
             echo "deploy_backend=true" >> $GITHUB_OUTPUT
@@ -87,50 +88,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup SSH
+
+      - name: Create SSH keys from secrets
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}"       | tr -d '\r' > cle_dev.key
+          echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}"   | tr -d '\r' > cle_staging.key
+          echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}"| tr -d '\r' > cle_prod.key
+          chmod 600 cle_*.key
+          ls -l cle_*.key
+
+      - name: Select VM host and SSH key file
         env:
           VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
           VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
           VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
-          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
-          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
-          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
         run: |
-          mkdir -p ~/.ssh
-          
-          ENV="${{ needs.prepare.outputs.environment }}"
-          echo "Environment: $ENV"
-          
-          case "$ENV" in
+          case "${{ needs.prepare.outputs.environment }}" in
             "production")
               VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
+              SSH_KEY_FILE="cle_prod.key"
               ;;
             "staging")
               VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
+              SSH_KEY_FILE="cle_staging.key"
               ;;
             "dev"|*)
               VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
           esac
-          
+
           if [ -z "$VM_HOST" ]; then
-            echo "Error: VM host is empty for environment $ENV"
+            echo "❌ Error: VM host is empty for environment $ENV"
             exit 1
           fi
-          
-          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
-          echo "Using VM host: $VM_HOST"
-          
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Test SSH connection
-        run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "echo '✅ SSH connection successful on $VM_HOST'"
+          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
+          echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> $GITHUB_ENV
+          echo "✅ Using host: $VM_HOST with key: $SSH_KEY_FILE"
+
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Make scripts executable
         run: |
@@ -144,7 +140,8 @@ jobs:
           ./scripts/deploy-frontend.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.image_tag }}" \
-            "$VM_HOST"
+            "$VM_HOST" \
+            "$SSH_KEY_FILE"
 
       - name: Deploy Backend
         if: needs.prepare.outputs.deploy_backend == 'true'
@@ -152,7 +149,8 @@ jobs:
           ./scripts/deploy-backend.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.image_tag }}" \
-            "$VM_HOST"
+            "$VM_HOST" \
+            "$SSH_KEY_FILE"
 
   rollback:
     needs: [prepare, deploy]
@@ -160,37 +158,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup SSH for rollback
+
+      - name: Select SSH key file for rollback
         env:
           VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
           VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
           VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
-          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
-          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
-          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
         run: |
-          mkdir -p ~/.ssh
-          
-          ENV="${{ needs.prepare.outputs.environment }}"
-          
-          case "$ENV" in
+          case "${{ needs.prepare.outputs.environment }}" in
             "production")
               VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
+              SSH_KEY_FILE="cle_prod.key"
               ;;
             "staging")
               VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
+              SSH_KEY_FILE="cle_staging.key"
               ;;
             "dev"|*)
               VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
+              SSH_KEY_FILE="cle_dev.key"
               ;;
           esac
-          
+
           echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
-          chmod 600 ~/.ssh/id_rsa
+          echo "SSH_KEY_FILE=$SSH_KEY_FILE" >> $GITHUB_ENV
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Execute rollback
@@ -199,7 +190,8 @@ jobs:
           ./scripts/rollback.sh \
             "${{ needs.prepare.outputs.environment }}" \
             "${{ needs.prepare.outputs.services }}" \
-            "$VM_HOST"
+            "$VM_HOST" \
+            "$SSH_KEY_FILE"
 
   summary:
     needs: [prepare, deploy, rollback]
@@ -217,11 +209,11 @@ jobs:
           echo "Results:"
           echo "- Deploy: ${{ needs.deploy.result }}"
           echo "- Rollback: ${{ needs.rollback.result }}"
-          
+
           if [[ "${{ needs.deploy.result }}" == "success" ]]; then
-            echo "Deployment successful!"
+            echo "✅ Deployment successful!"
           elif [[ "${{ needs.rollback.result }}" == "success" ]]; then
-            echo "Deployment failed but rollback successful"
+            echo "⚠️ Deployment failed but rollback successful"
           else
-            echo "Deployment failed"
+            echo "❌ Deployment failed"
           fi
