@@ -1,4 +1,4 @@
-name: WARRIOR DEPLOY
+name: Deploy to Oracle Cloud
 
 on:
   push:
@@ -23,6 +23,11 @@ on:
           - frontend
           - backend
           - both
+      image_tag:
+        description: "Image tag"
+        required: false
+        default: "latest"
+        type: string
 
 jobs:
   deploy:
@@ -31,7 +36,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy via appleboy/ssh-action
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ github.event.inputs.environment == 'production' && secrets.VM_HOST_PRODUCTION || github.event.inputs.environment == 'staging' && secrets.VM_HOST_STAGING || secrets.VM_HOST_DEV }}
@@ -40,50 +45,51 @@ jobs:
           script: |
             ENV="${{ github.event.inputs.environment || 'staging' }}"
             SERVICE="${{ github.event.inputs.service || 'frontend' }}"
+            TAG="${{ github.event.inputs.image_tag || 'latest' }}"
             
-            echo "🚀 Deploying $SERVICE to $ENV"
+            echo "Deploying $SERVICE to $ENV with tag $TAG"
             
             if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
-              echo "📦 Deploying Frontend..."
+              echo "Deploying Frontend..."
               docker stop dreamscape-frontend-$ENV 2>/dev/null || true
               docker rm dreamscape-frontend-$ENV 2>/dev/null || true
-              docker pull dreamscape/frontend:latest
+              docker pull dreamscape/frontend:$TAG
               docker run -d \
                 --name dreamscape-frontend-$ENV \
                 --restart unless-stopped \
                 -p 80:80 \
                 -e NODE_ENV=$ENV \
-                dreamscape/frontend:latest
+                dreamscape/frontend:$TAG
               
               sleep 10
               if docker ps | grep dreamscape-frontend-$ENV; then
-                echo "✅ Frontend OK"
+                echo "Frontend deployed successfully"
               else
-                echo "❌ Frontend FAILED"
+                echo "Frontend deployment failed"
                 exit 1
               fi
             fi
             
             if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
-              echo "📦 Deploying Backend..."
+              echo "Deploying Backend..."
               docker stop dreamscape-backend-$ENV 2>/dev/null || true
               docker rm dreamscape-backend-$ENV 2>/dev/null || true
-              docker pull dreamscape/backend:latest
+              docker pull dreamscape/backend:$TAG
               docker run -d \
                 --name dreamscape-backend-$ENV \
                 --restart unless-stopped \
                 -p 8080:8080 \
                 -e NODE_ENV=$ENV \
-                dreamscape/backend:latest
+                dreamscape/backend:$TAG
               
               sleep 10
               if docker ps | grep dreamscape-backend-$ENV; then
-                echo "✅ Backend OK"
+                echo "Backend deployed successfully"
               else
-                echo "❌ Backend FAILED"
+                echo "Backend deployment failed"
                 exit 1
               fi
             fi
             
-            echo "🎉 DEPLOYMENT COMPLETE!"
+            echo "Deployment complete!"
             docker ps | grep dreamscape
