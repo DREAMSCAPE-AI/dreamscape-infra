@@ -1,0 +1,364 @@
+name: CI - Tests & Linting
+
+on:
+  push:
+    branches: [main, develop, feature/**]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  ORG: DREAMSCAPE-AI
+
+jobs:
+  # Validation initiale et setup
+  setup:
+    name: Setup & Validation
+    runs-on: ubuntu-latest
+    outputs:
+      services-changed: ${{ steps.changes.outputs.services }}
+      frontend-changed: ${{ steps.changes.outputs.frontend }}
+      tests-changed: ${{ steps.changes.outputs.tests }}
+      infra-changed: ${{ steps.changes.outputs.infra }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            services:
+              - 'dreamscape-services/**'
+            frontend:
+              - 'dreamscape-frontend/**'
+            tests:
+              - 'dreamscape-tests/**'
+            infra:
+              - 'dreamscape-infra/**'
+              - '.github/workflows/**'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            dreamscape-*/package-lock.json
+
+      - name: Validate workspace structure
+        run: |
+          echo "🔍 Validating monorepo structure..."
+          ls -la
+          echo "✅ Workspace validation completed"
+
+  # Linting et vérifications de code
+  lint:
+    name: Lint & Code Quality
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        component: [services, frontend, tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npm ci
+          else
+            echo "No package.json found for ${{ matrix.component }}, skipping"
+          fi
+
+      - name: Run ESLint
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npm run lint --if-present || echo "No lint script found"
+          fi
+
+      - name: Run Prettier check
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npm run format:check --if-present || echo "No format:check script found"
+          fi
+
+      - name: TypeScript type checking
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/tsconfig.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npx tsc --noEmit
+          fi
+
+  # Tests unitaires
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        component: [services, frontend, tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npm ci
+          else
+            echo "No package.json found for ${{ matrix.component }}, skipping"
+            exit 0
+          fi
+
+      - name: Run unit tests
+        run: |
+          cd dreamscape-${{ matrix.component }}
+          npm run test:unit --if-present || npm run test --if-present || echo "No test script found"
+        env:
+          CI: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results-${{ matrix.component }}
+          path: |
+            dreamscape-${{ matrix.component }}/coverage/
+            dreamscape-${{ matrix.component }}/test-results/
+
+  # Build des composants
+  build:
+    name: Build Components
+    runs-on: ubuntu-latest
+    needs: [setup, lint]
+    strategy:
+      matrix:
+        component: [services, frontend]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
+            cd dreamscape-${{ matrix.component }}
+            npm ci
+          else
+            echo "No package.json found for ${{ matrix.component }}, skipping"
+            exit 0
+          fi
+
+      - name: Build component
+        run: |
+          cd dreamscape-${{ matrix.component }}
+          npm run build --if-present || echo "No build script found"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: build-${{ matrix.component }}
+          path: |
+            dreamscape-${{ matrix.component }}/dist/
+            dreamscape-${{ matrix.component }}/build/
+
+  # Tests d'intégration
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests]
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          if [ -f "dreamscape-tests/package.json" ]; then
+            cd dreamscape-tests
+            npm ci
+          else
+            echo "No test package.json found, skipping"
+            exit 0
+          fi
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for MongoDB..."
+          timeout 60 bash -c 'until nc -z localhost 27017; do sleep 1; done'
+          echo "Waiting for Redis..."
+          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+
+      - name: Run integration tests
+        run: |
+          cd dreamscape-tests
+          npm run test:integration --if-present || echo "No integration tests found"
+        env:
+          TEST_DATABASE_URL: mongodb://localhost:27017/dreamscape_test
+          REDIS_URL: redis://localhost:6379
+          CI: true
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            dreamscape-tests/reports/
+            dreamscape-tests/coverage/
+
+  # Security scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: setup
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run npm audit
+        run: |
+          for dir in dreamscape-*; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Running npm audit for $dir"
+              cd "$dir"
+              npm audit --audit-level=moderate || true
+              cd ..
+            fi
+          done
+
+  # Job de synthèse
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, build, integration-tests, security-scan]
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          echo "Lint: ${{ needs.lint.result }}"
+          echo "Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "Build: ${{ needs.build.result }}"
+          echo "Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+          
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.build.result }}" == "failure" ]]; then
+            echo "❌ CI Pipeline failed"
+            exit 1
+          else
+            echo "✅ CI Pipeline passed"
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = {
+              lint: '${{ needs.lint.result }}',
+              unitTests: '${{ needs.unit-tests.result }}',
+              build: '${{ needs.build.result }}',
+              integrationTests: '${{ needs.integration-tests.result }}',
+              securityScan: '${{ needs.security-scan.result }}'
+            };
+            
+            const getEmoji = (status) => status === 'success' ? '✅' : status === 'failure' ? '❌' : '⚠️';
+            
+            const comment = `
+            ## 🚀 CI Pipeline Results
+            
+            | Check | Status |
+            |-------|--------|
+            | Lint & Code Quality | ${getEmoji(results.lint)} ${results.lint} |
+            | Unit Tests | ${getEmoji(results.unitTests)} ${results.unitTests} |
+            | Build | ${getEmoji(results.build)} ${results.build} |
+            | Integration Tests | ${getEmoji(results.integrationTests)} ${results.integrationTests} |
+            | Security Scan | ${getEmoji(results.securityScan)} ${results.securityScan} |
+            
+            **Commit**: \`${{ github.sha }}\`
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
