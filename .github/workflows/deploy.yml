@@ -1,4 +1,4 @@
-name: Simple Deploy Pipeline
+name: WARRIOR DEPLOY
 
 on:
   push:
@@ -23,215 +23,67 @@ on:
           - frontend
           - backend
           - both
-      image_tag:
-        description: "Image tag"
-        required: false
-        default: "latest"
-        type: string
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set environment variables
-        run: |
-          # Déterminer l'environnement
-          if [ "${{ github.event_name }}" = "push" ]; then
-            ENV="staging"
-          else
-            ENV="${{ github.event.inputs.environment }}"
-          fi
-          
-          # Déterminer le service
-          if [ "${{ github.event_name }}" = "push" ]; then
-            SERVICE="both"
-          else
-            SERVICE="${{ github.event.inputs.service }}"
-          fi
-          
-          # Déterminer le tag
-          IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
-          
-          echo "ENVIRONMENT=${ENV}" >> $GITHUB_ENV
-          echo "SERVICE=${SERVICE}" >> $GITHUB_ENV
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-          
-          # Déterminer l'host et la clé selon l'environnement
-          case "${ENV}" in
-            "production")
-              echo "VM_HOST=${{ secrets.VM_HOST_PRODUCTION }}" >> $GITHUB_ENV
-              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_PRODUCTION" >> $GITHUB_ENV
-              ;;
-            "staging")
-              echo "VM_HOST=${{ secrets.VM_HOST_STAGING }}" >> $GITHUB_ENV
-              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_STAGING" >> $GITHUB_ENV
-              ;;
-            "dev")
-              echo "VM_HOST=${{ secrets.VM_HOST_DEV }}" >> $GITHUB_ENV
-              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_DEV" >> $GITHUB_ENV
-              ;;
-          esac
-          
-          echo "✅ Configuration:"
-          echo "  Environment: ${ENV}"
-          echo "  Service: ${SERVICE}" 
-          echo "  Image Tag: ${IMAGE_TAG}"
-
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          
-          # Debug: vérifier les secrets
-          echo "Environment: $ENVIRONMENT"
-          echo "VM Host: $VM_HOST"
-          
-          # Créer la clé SSH selon l'environnement
-          case "$ENVIRONMENT" in
-            "production")
-              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" | base64 -d > ssh_key 2>/dev/null || echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ssh_key
-              ;;
-            "staging") 
-              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" | base64 -d > ssh_key 2>/dev/null || echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ssh_key
-              ;;
-            "dev")
-              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" | base64 -d > ssh_key 2>/dev/null || echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ssh_key
-              ;;
-          esac
-          
-          # Nettoyer les retours chariot et ajouter une ligne vide
-          tr -d '\r' < ssh_key > ssh_key_clean
-          echo "" >> ssh_key_clean
-          mv ssh_key_clean ssh_key
-          
-          chmod 600 ssh_key
-          
-          # Debug: vérifier la clé
-          echo "Clé SSH créée:"
-          ls -la ssh_key
-          head -1 ssh_key
-          tail -1 ssh_key
-          
-          # Ajouter l'host aux known_hosts
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          
-          # Test de connexion SSH
-          echo "Test de connexion SSH..."
-          ssh -i ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@$VM_HOST "echo 'Connexion SSH réussie !'" || echo "❌ Échec de la connexion SSH"
-          
-          echo "✅ SSH configuré pour $VM_HOST"
-
-      - name: Deploy Frontend
-        if: env.SERVICE == 'frontend' || env.SERVICE == 'both'
-        run: |
-          echo "🚀 Déploiement Frontend sur $ENVIRONMENT"
-          
-          ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
-            echo 'Arrêt du conteneur existant...'
-            docker stop dreamscape-frontend-$ENVIRONMENT 2>/dev/null || true
-            docker rm dreamscape-frontend-$ENVIRONMENT 2>/dev/null || true
+      - name: Deploy via appleboy/ssh-action
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ github.event.inputs.environment == 'production' && secrets.VM_HOST_PRODUCTION || github.event.inputs.environment == 'staging' && secrets.VM_HOST_STAGING || secrets.VM_HOST_DEV }}
+          username: ubuntu
+          key: ${{ github.event.inputs.environment == 'production' && secrets.SSH_PRIVATE_KEY_PRODUCTION || github.event.inputs.environment == 'staging' && secrets.SSH_PRIVATE_KEY_STAGING || secrets.SSH_PRIVATE_KEY_DEV }}
+          script: |
+            ENV="${{ github.event.inputs.environment || 'staging' }}"
+            SERVICE="${{ github.event.inputs.service || 'frontend' }}"
             
-            echo 'Récupération de la nouvelle image...'
-            docker pull dreamscape/frontend:$IMAGE_TAG
+            echo "🚀 Deploying $SERVICE to $ENV"
             
-            echo 'Démarrage du nouveau conteneur...'
-            docker run -d \
-              --name dreamscape-frontend-$ENVIRONMENT \
-              --restart unless-stopped \
-              -p 80:80 \
-              -e NODE_ENV=$ENVIRONMENT \
-              dreamscape/frontend:$IMAGE_TAG
-            
-            echo 'Vérification du conteneur...'
-            sleep 10
-            if docker ps | grep dreamscape-frontend-$ENVIRONMENT; then
-              echo '✅ Frontend déployé avec succès'
-            else
-              echo '❌ Échec du déploiement frontend'
-              exit 1
+            if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+              echo "📦 Deploying Frontend..."
+              docker stop dreamscape-frontend-$ENV 2>/dev/null || true
+              docker rm dreamscape-frontend-$ENV 2>/dev/null || true
+              docker pull dreamscape/frontend:latest
+              docker run -d \
+                --name dreamscape-frontend-$ENV \
+                --restart unless-stopped \
+                -p 80:80 \
+                -e NODE_ENV=$ENV \
+                dreamscape/frontend:latest
+              
+              sleep 10
+              if docker ps | grep dreamscape-frontend-$ENV; then
+                echo "✅ Frontend OK"
+              else
+                echo "❌ Frontend FAILED"
+                exit 1
+              fi
             fi
-          "
-
-      - name: Deploy Backend
-        if: env.SERVICE == 'backend' || env.SERVICE == 'both'
-        run: |
-          echo "🚀 Déploiement Backend sur $ENVIRONMENT"
-          
-          ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
-            echo 'Arrêt du conteneur existant...'
-            docker stop dreamscape-backend-$ENVIRONMENT 2>/dev/null || true
-            docker rm dreamscape-backend-$ENVIRONMENT 2>/dev/null || true
             
-            echo 'Récupération de la nouvelle image...'
-            docker pull dreamscape/backend:$IMAGE_TAG
-            
-            echo 'Démarrage du nouveau conteneur...'
-            docker run -d \
-              --name dreamscape-backend-$ENVIRONMENT \
-              --restart unless-stopped \
-              -p 8080:8080 \
-              -e NODE_ENV=$ENVIRONMENT \
-              dreamscape/backend:$IMAGE_TAG
-            
-            echo 'Vérification du conteneur...'
-            sleep 10
-            if docker ps | grep dreamscape-backend-$ENVIRONMENT; then
-              echo '✅ Backend déployé avec succès'
-            else
-              echo '❌ Échec du déploiement backend'
-              exit 1
+            if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+              echo "📦 Deploying Backend..."
+              docker stop dreamscape-backend-$ENV 2>/dev/null || true
+              docker rm dreamscape-backend-$ENV 2>/dev/null || true
+              docker pull dreamscape/backend:latest
+              docker run -d \
+                --name dreamscape-backend-$ENV \
+                --restart unless-stopped \
+                -p 8080:8080 \
+                -e NODE_ENV=$ENV \
+                dreamscape/backend:latest
+              
+              sleep 10
+              if docker ps | grep dreamscape-backend-$ENV; then
+                echo "✅ Backend OK"
+              else
+                echo "❌ Backend FAILED"
+                exit 1
+              fi
             fi
-          "
-
-      - name: Health Check
-        run: |
-          echo "🔍 Vérification de santé..."
-          
-          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
-            ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
-              for i in {1..5}; do
-                if curl -f -s http://localhost/ > /dev/null; then
-                  echo '✅ Frontend OK'
-                  break
-                else
-                  echo '⏳ Tentative \$i/5 pour frontend...'
-                  sleep 5
-                fi
-              done
-            "
-          fi
-          
-          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
-            ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
-              for i in {1..5}; do
-                if curl -f -s http://localhost:8080/health > /dev/null 2>&1; then
-                  echo '✅ Backend OK'
-                  break
-                else
-                  echo '⏳ Tentative \$i/5 pour backend...'
-                  sleep 5
-                fi
-              done
-            "
-          fi
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -f ssh_key
-          echo "✅ Nettoyage terminé"
-
-  rollback:
-    if: failure()
-    needs: [deploy]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Rollback (manual for now)
-        run: |
-          echo "❌ Déploiement échoué"
-          echo "🔄 Pour un rollback manuel, connectez-vous au serveur et exécutez:"
-          echo "docker stop dreamscape-[service]-${{ github.event.inputs.environment || 'staging' }}"
-          echo "docker run -d --name dreamscape-[service]-${{ github.event.inputs.environment || 'staging' }} [previous-image]"
+            
+            echo "🎉 DEPLOYMENT COMPLETE!"
+            docker ps | grep dreamscape
