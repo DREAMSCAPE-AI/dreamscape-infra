@@ -105,15 +105,15 @@ jobs:
           case "$ENV" in
             "production")
               VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
             "staging")
               VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
             "dev"|*)
               VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
           esac
           
@@ -128,17 +128,10 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Debug SSH key
-        env:
-        SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+      - name: Test SSH connection
         run: |
-          echo "Checking if SSH key starts correctly:"
-          echo "$SSH_KEY_STAGING" | head -1
-          echo "Checking if SSH key ends correctly:"  
-          echo "$SSH_KEY_STAGING" | tail -1
-          echo "SSH key length:"
-          echo "$SSH_KEY_STAGING" | wc -l
-          
+          ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "echo '✅ SSH connection successful on $VM_HOST'"
+
       - name: Make scripts executable
         run: |
           chmod +x scripts/deploy-frontend.sh
@@ -184,15 +177,15 @@ jobs:
           case "$ENV" in
             "production")
               VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
             "staging")
               VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
             "dev"|*)
               VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" > ~/.ssh/id_rsa
+              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
               ;;
           esac
           
