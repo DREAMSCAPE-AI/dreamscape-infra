@@ -130,7 +130,7 @@ jobs:
 
       - name: Debug SSH key
         env:
-        SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
         run: |
           echo "Checking if SSH key starts correctly:"
           echo "$SSH_KEY_STAGING" | head -1
