@@ -1,4 +1,4 @@
-name: Final Test Deploy
+name: Deploy Simple
 
 on:
   workflow_dispatch:
@@ -7,36 +7,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Test connection and deploy
-        run: |
-          # Créer la clé avec nettoyage
-          echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" | tr -d '\r' > ssh_key
-          chmod 600 ssh_key
-          
-          # Debug clé
-          echo "Key file created:"
-          ls -la ssh_key
-          echo "First line:" 
-          head -1 ssh_key
-          echo "Last line:"
-          tail -1 ssh_key
-          
-          # Test connexion
-          ssh -i ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ secrets.VM_HOST_STAGING }} "echo 'SSH works!'" || {
-            echo "SSH failed, trying with different options..."
-            ssh -i ssh_key -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o ConnectTimeout=10 ubuntu@${{ secrets.VM_HOST_STAGING }} "echo 'SSH works with forced key auth!'"
-          }
-          
-          # Si connexion OK, déployer
-          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.VM_HOST_STAGING }} "
-            echo 'Deploying frontend...'
+      - name: Deploy avec contournement
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST_STAGING }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
+          script: |
             docker stop dreamscape-frontend-staging 2>/dev/null || true
             docker rm dreamscape-frontend-staging 2>/dev/null || true
             docker pull dreamscape/frontend:latest
             docker run -d --name dreamscape-frontend-staging --restart unless-stopped -p 80:80 -e NODE_ENV=staging dreamscape/frontend:latest
             sleep 5
-            docker ps | grep dreamscape-frontend-staging && echo 'DEPLOY SUCCESS!' || echo 'DEPLOY FAILED!'
-          "
-          
-          # Nettoyage
-          rm ssh_key
+            docker ps | grep dreamscape-frontend-staging
