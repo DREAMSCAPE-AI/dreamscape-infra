@@ -1,4 +1,4 @@
-name: Deploy to Oracle Cloud
+name: Simple SSH Deploy
 
 on:
   push:
@@ -23,11 +23,6 @@ on:
           - frontend
           - backend
           - both
-      image_tag:
-        description: "Image tag"
-        required: false
-        default: "latest"
-        type: string
 
 jobs:
   deploy:
@@ -36,60 +31,89 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ github.event.inputs.environment == 'production' && secrets.VM_HOST_PRODUCTION || github.event.inputs.environment == 'staging' && secrets.VM_HOST_STAGING || secrets.VM_HOST_DEV }}
-          username: ubuntu
-          key: ${{ github.event.inputs.environment == 'production' && secrets.SSH_PRIVATE_KEY_PRODUCTION || github.event.inputs.environment == 'staging' && secrets.SSH_PRIVATE_KEY_STAGING || secrets.SSH_PRIVATE_KEY_DEV }}
-          script: |
-            ENV="${{ github.event.inputs.environment || 'staging' }}"
-            SERVICE="${{ github.event.inputs.service || 'frontend' }}"
-            TAG="${{ github.event.inputs.image_tag || 'latest' }}"
+      - name: Setup and Deploy
+        run: |
+          # Définir les variables
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          SERVICE="${{ github.event.inputs.service || 'frontend' }}"
+          
+          echo "Deploying $SERVICE to $ENV"
+          
+          # Choisir host et clé selon l'environnement
+          case "$ENV" in
+            "production")
+              HOST="${{ secrets.VM_HOST_PRODUCTION }}"
+              SSH_KEY="${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}"
+              ;;
+            "staging")
+              HOST="${{ secrets.VM_HOST_STAGING }}"
+              SSH_KEY="${{ secrets.SSH_PRIVATE_KEY_STAGING }}"
+              ;;
+            "dev")
+              HOST="${{ secrets.VM_HOST_DEV }}"
+              SSH_KEY="${{ secrets.SSH_PRIVATE_KEY_DEV }}"
+              ;;
+          esac
+          
+          # Créer la clé SSH
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Ajouter l'host aux known_hosts
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          
+          # Fonction de déploiement
+          deploy_service() {
+            local service=$1
+            echo "Deploying $service..."
             
-            echo "Deploying $SERVICE to $ENV with tag $TAG"
-            
-            if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
-              echo "Deploying Frontend..."
-              docker stop dreamscape-frontend-$ENV 2>/dev/null || true
-              docker rm dreamscape-frontend-$ENV 2>/dev/null || true
-              docker pull dreamscape/frontend:$TAG
-              docker run -d \
-                --name dreamscape-frontend-$ENV \
-                --restart unless-stopped \
-                -p 80:80 \
-                -e NODE_ENV=$ENV \
-                dreamscape/frontend:$TAG
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@$HOST << EOF
+              echo "Stopping existing $service container..."
+              docker stop dreamscape-$service-$ENV 2>/dev/null || true
+              docker rm dreamscape-$service-$ENV 2>/dev/null || true
               
-              sleep 10
-              if docker ps | grep dreamscape-frontend-$ENV; then
-                echo "Frontend deployed successfully"
+              echo "Pulling new $service image..."
+              docker pull dreamscape/$service:latest
+              
+              echo "Starting new $service container..."
+              if [ "$service" = "frontend" ]; then
+                docker run -d \
+                  --name dreamscape-$service-$ENV \
+                  --restart unless-stopped \
+                  -p 80:80 \
+                  -e NODE_ENV=$ENV \
+                  dreamscape/$service:latest
               else
-                echo "Frontend deployment failed"
+                docker run -d \
+                  --name dreamscape-$service-$ENV \
+                  --restart unless-stopped \
+                  -p 8080:8080 \
+                  -e NODE_ENV=$ENV \
+                  dreamscape/$service:latest
+              fi
+              
+              echo "Checking $service container..."
+              sleep 10
+              if docker ps | grep dreamscape-$service-$ENV; then
+                echo "$service deployed successfully"
+              else
+                echo "$service deployment failed"
                 exit 1
               fi
-            fi
-            
-            if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
-              echo "Deploying Backend..."
-              docker stop dreamscape-backend-$ENV 2>/dev/null || true
-              docker rm dreamscape-backend-$ENV 2>/dev/null || true
-              docker pull dreamscape/backend:$TAG
-              docker run -d \
-                --name dreamscape-backend-$ENV \
-                --restart unless-stopped \
-                -p 8080:8080 \
-                -e NODE_ENV=$ENV \
-                dreamscape/backend:$TAG
-              
-              sleep 10
-              if docker ps | grep dreamscape-backend-$ENV; then
-                echo "Backend deployed successfully"
-              else
-                echo "Backend deployment failed"
-                exit 1
-              fi
-            fi
-            
-            echo "Deployment complete!"
-            docker ps | grep dreamscape
+          EOF
+          }
+          
+          # Déployer selon le service choisi
+          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+            deploy_service "frontend"
+          fi
+          
+          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+            deploy_service "backend"
+          fi
+          
+          echo "Deployment completed!"
+          
+          # Cleanup
+          rm -f ~/.ssh/deploy_key
