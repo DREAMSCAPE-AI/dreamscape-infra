@@ -114,7 +114,6 @@ jobs:
               ;;
             "dev"|*)
               VM_HOST="$VM_HOST_DEV"
-              SSH_KEY_FILE="cle_dev.key"
               ;;
           esac
 
