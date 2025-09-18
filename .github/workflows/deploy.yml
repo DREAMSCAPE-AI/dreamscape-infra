@@ -2,7 +2,7 @@ name: Simple Deploy Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, DR-51-US-INFRA-002.3---Configuration-du-déploiement]
   workflow_dispatch:
     inputs:
       environment:
@@ -110,93 +110,93 @@ jobs:
         run: |
           echo "🚀 Déploiement Frontend sur $ENVIRONMENT"
           
-          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
-            # Arrêter le conteneur existant
-            docker stop dreamscape-frontend-${{ env.ENVIRONMENT }} 2>/dev/null || true
-            docker rm dreamscape-frontend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+          ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
+            echo 'Arrêt du conteneur existant...'
+            docker stop dreamscape-frontend-$ENVIRONMENT 2>/dev/null || true
+            docker rm dreamscape-frontend-$ENVIRONMENT 2>/dev/null || true
             
-            # Tirer la nouvelle image
-            docker pull dreamscape/frontend:${{ env.IMAGE_TAG }}
+            echo 'Récupération de la nouvelle image...'
+            docker pull dreamscape/frontend:$IMAGE_TAG
             
-            # Démarrer le nouveau conteneur
+            echo 'Démarrage du nouveau conteneur...'
             docker run -d \
-              --name dreamscape-frontend-${{ env.ENVIRONMENT }} \
+              --name dreamscape-frontend-$ENVIRONMENT \
               --restart unless-stopped \
               -p 80:80 \
-              -e NODE_ENV=${{ env.ENVIRONMENT }} \
-              dreamscape/frontend:${{ env.IMAGE_TAG }}
+              -e NODE_ENV=$ENVIRONMENT \
+              dreamscape/frontend:$IMAGE_TAG
             
-            # Vérifier que le conteneur tourne
+            echo 'Vérification du conteneur...'
             sleep 10
-            if docker ps | grep dreamscape-frontend-${{ env.ENVIRONMENT }}; then
-              echo "✅ Frontend déployé avec succès"
+            if docker ps | grep dreamscape-frontend-$ENVIRONMENT; then
+              echo '✅ Frontend déployé avec succès'
             else
-              echo "❌ Échec du déploiement frontend"
+              echo '❌ Échec du déploiement frontend'
               exit 1
             fi
-          EOF
+          "
 
       - name: Deploy Backend
         if: env.SERVICE == 'backend' || env.SERVICE == 'both'
         run: |
           echo "🚀 Déploiement Backend sur $ENVIRONMENT"
           
-          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
-            # Arrêter le conteneur existant
-            docker stop dreamscape-backend-${{ env.ENVIRONMENT }} 2>/dev/null || true
-            docker rm dreamscape-backend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+          ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
+            echo 'Arrêt du conteneur existant...'
+            docker stop dreamscape-backend-$ENVIRONMENT 2>/dev/null || true
+            docker rm dreamscape-backend-$ENVIRONMENT 2>/dev/null || true
             
-            # Tirer la nouvelle image
-            docker pull dreamscape/backend:${{ env.IMAGE_TAG }}
+            echo 'Récupération de la nouvelle image...'
+            docker pull dreamscape/backend:$IMAGE_TAG
             
-            # Démarrer le nouveau conteneur
+            echo 'Démarrage du nouveau conteneur...'
             docker run -d \
-              --name dreamscape-backend-${{ env.ENVIRONMENT }} \
+              --name dreamscape-backend-$ENVIRONMENT \
               --restart unless-stopped \
               -p 8080:8080 \
-              -e NODE_ENV=${{ env.ENVIRONMENT }} \
-              dreamscape/backend:${{ env.IMAGE_TAG }}
+              -e NODE_ENV=$ENVIRONMENT \
+              dreamscape/backend:$IMAGE_TAG
             
-            # Vérifier que le conteneur tourne
+            echo 'Vérification du conteneur...'
             sleep 10
-            if docker ps | grep dreamscape-backend-${{ env.ENVIRONMENT }}; then
-              echo "✅ Backend déployé avec succès"
+            if docker ps | grep dreamscape-backend-$ENVIRONMENT; then
+              echo '✅ Backend déployé avec succès'
             else
-              echo "❌ Échec du déploiement backend"
+              echo '❌ Échec du déploiement backend'
               exit 1
             fi
-          EOF
+          "
 
       - name: Health Check
         run: |
           echo "🔍 Vérification de santé..."
           
           if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
-            ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+            ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
               for i in {1..5}; do
                 if curl -f -s http://localhost/ > /dev/null; then
-                  echo "✅ Frontend OK"
+                  echo '✅ Frontend OK'
                   break
                 else
-                  echo "⏳ Tentative $i/5 pour frontend..."
+                  echo '⏳ Tentative \$i/5 pour frontend...'
                   sleep 5
                 fi
               done
-          EOF
+            "
           fi
           
           if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
-            ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+            ssh -i ssh_key -o StrictHostKeyChecking=no -T ubuntu@$VM_HOST "
               for i in {1..5}; do
                 if curl -f -s http://localhost:8080/health > /dev/null 2>&1; then
-                  echo "✅ Backend OK"
+                  echo '✅ Backend OK'
                   break
                 else
-                  echo "⏳ Tentative $i/5 pour backend..."
+                  echo '⏳ Tentative \$i/5 pour backend...'
                   sleep 5
                 fi
               done
-          EOF
+            "
           fi
 
       - name: Cleanup
