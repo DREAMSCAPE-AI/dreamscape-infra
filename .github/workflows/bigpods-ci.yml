@@ -159,7 +159,7 @@ jobs:
 
       - name: 📊 Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.test-suite }}
           path: |
@@ -212,7 +212,7 @@ jobs:
 
       - name: 📊 Upload Integration Results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
           path: |
@@ -491,7 +491,7 @@ jobs:
           fi
 
       - name: 📤 Upload CI Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ci-summary-${{ github.run_number }}
