@@ -42,23 +42,24 @@ jobs:
         with:
           filters: |
             services:
-              - 'dreamscape-services/**'
+              - 'docker/bigpods/*/services/**'
             frontend:
-              - 'dreamscape-frontend/**'
+              - 'docker/bigpods/*/web/**'
             tests:
-              - 'dreamscape-tests/**'
+              - 'integration/**'
+              - 'tests/**'
             infra:
-              - 'dreamscape-infra/**'
+              - 'docker/**'
+              - 'k8s/**'
+              - 'terraform/**'
+              - 'scripts/**'
+              - 'monitoring/**'
               - '.github/workflows/**'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            dreamscape-*/package-lock.json
 
       - name: Validate workspace structure
         run: |
@@ -82,23 +83,60 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: |
-          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
-            cd dreamscape-${{ matrix.component }}
-            npm ci
-          else
-            echo "No package.json found for ${{ matrix.component }}, skipping"
-          fi
+          case "${{ matrix.component }}" in
+            "services")
+              for service in docker/bigpods/*/services/*/; do
+                if [ -f "$service/package.json" ]; then
+                  echo "Installing deps for $service"
+                  cd "$service" && (npm ci || npm install) && cd ../../../../..
+                fi
+              done
+              ;;
+            "frontend")
+              for frontend in docker/bigpods/*/web/*/; do
+                if [ -f "$frontend/package.json" ]; then
+                  echo "Installing deps for $frontend"
+                  cd "$frontend" && (npm ci || npm install) && cd ../../../../..
+                fi
+              done
+              ;;
+            "tests")
+              if [ -f "integration/package.json" ]; then
+                cd integration && (npm ci || npm install)
+              else
+                echo "No tests package.json found, skipping"
+              fi
+              ;;
+          esac
 
       - name: Run ESLint
         run: |
-          if [ -d "dreamscape-${{ matrix.component }}" ] && [ -f "dreamscape-${{ matrix.component }}/package.json" ]; then
-            cd dreamscape-${{ matrix.component }}
-            npm run lint --if-present || echo "No lint script found"
-          fi
+          case "${{ matrix.component }}" in
+            "services")
+              for service in docker/bigpods/*/services/*/; do
+                if [ -f "$service/package.json" ]; then
+                  echo "Linting $service"
+                  cd "$service" && npm run lint --if-present && cd ../../../../.. || true
+                fi
+              done
+              ;;
+            "frontend")
+              for frontend in docker/bigpods/*/web/*/; do
+                if [ -f "$frontend/package.json" ]; then
+                  echo "Linting $frontend"
+                  cd "$frontend" && npm run lint --if-present && cd ../../../../.. || true
+                fi
+              done
+              ;;
+            "tests")
+              if [ -f "integration/package.json" ]; then
+                cd integration && npm run lint --if-present || echo "No lint script in tests"
+              fi
+              ;;
+          esac
 
       - name: Run Prettier check
         run: |
@@ -130,7 +168,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: |
@@ -174,7 +211,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: |
@@ -232,7 +268,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: |
