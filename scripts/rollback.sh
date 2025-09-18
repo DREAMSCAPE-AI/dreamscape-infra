@@ -4,20 +4,22 @@ set -e
 ENV=$1
 SERVICES=$2
 VM_HOST=$3
+SSH_KEY_FILE=$4
 
-if [ "$#" -ne 3 ]; then
-    echo "Usage: $0 <environment> <services> <vm_host>"
+if [ "$#" -ne 4 ]; then
+    echo "Usage: $0 <environment> <services> <vm_host> <ssh_key_file>"
     exit 1
 fi
 
 echo "Starting rollback for $ENV environment"
 echo "Services: $SERVICES"
+echo "Key: $SSH_KEY_FILE"
 
 rollback_service() {
   local service=$1
   echo "Rolling back $service..."
   
-  ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
+  ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
     docker stop dreamscape-$service-$ENV 2>/dev/null || echo 'No current container'
     docker rm dreamscape-$service-$ENV 2>/dev/null || echo 'No container to remove'
     
@@ -56,4 +58,4 @@ for service in "${SERVICE_ARRAY[@]}"; do
   rollback_service "$service"
 done
 
-echo "Rollback completed!"
+echo "✅ Rollback completed!"

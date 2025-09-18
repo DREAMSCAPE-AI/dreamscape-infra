@@ -4,17 +4,19 @@ set -e
 ENV=$1
 IMAGE_TAG=$2
 VM_HOST=$3
+SSH_KEY_FILE=$4
 
-if [ "$#" -ne 3 ]; then
-    echo "Usage: $0 <environment> <image_tag> <vm_host>"
+if [ "$#" -ne 4 ]; then
+    echo "Usage: $0 <environment> <image_tag> <vm_host> <ssh_key_file>"
     exit 1
 fi
 
-echo "Deploying frontend to $ENV environment"
+echo "🚀 Deploying frontend to $ENV"
 echo "Image: dreamscape/frontend:$IMAGE_TAG"
 echo "VM: $VM_HOST"
+echo "Key: $SSH_KEY_FILE"
 
-ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
+ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
   echo 'Stopping existing frontend container...'
   docker stop dreamscape-frontend-$ENV 2>/dev/null || echo 'No existing container'
   docker rm dreamscape-frontend-$ENV 2>/dev/null || echo 'No container to remove'
@@ -34,13 +36,13 @@ ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
   sleep 15
   
   if ! docker ps | grep dreamscape-frontend-$ENV; then
-    echo 'Frontend container is not running'
+    echo '❌ Frontend container is not running'
     exit 1
   fi
   
   for i in {1..10}; do
     if curl -f -s http://localhost/ > /dev/null 2>&1; then
-      echo 'Frontend is healthy'
+      echo '✅ Frontend is healthy'
       exit 0
     else
       echo \"Attempt \$i/10: Frontend not responding, waiting...\"
@@ -48,8 +50,8 @@ ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "
     fi
   done
   
-  echo 'Frontend health check failed'
+  echo '❌ Frontend health check failed'
   exit 1
 "
 
-echo "Frontend deployment completed!"
+echo "✅ Frontend deployment completed!"
