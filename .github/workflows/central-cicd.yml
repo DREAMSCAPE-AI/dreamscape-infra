@@ -171,7 +171,7 @@ jobs:
           esac
 
   run-tests:
-    name: Run Tests
+    name: Run Infrastructure Tests
     runs-on: ubuntu-latest
     needs: [parse-event, validate-changes]
     if: always() && (needs.parse-event.outputs.strategy == 'test-only' || needs.parse-event.outputs.environment != 'production')
@@ -179,27 +179,57 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run test suite
+      - name: Install kubectl and kustomize
         run: |
-          echo "🧪 Running tests for ${{ needs.parse-event.outputs.component }}..."
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+          # Install kustomize
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+          # Install shellcheck for script validation
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+          # Verify installations
+          kubectl version --client
+          kustomize version
+          shellcheck --version
+
+      - name: Setup SSH for K3s tests (if available)
+        if: env.K3S_SSH_KEY != ''
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.K3S_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.K3S_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run Infrastructure Test Suite
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          echo "🧪 Running comprehensive infrastructure tests..."
           
-          case "${{ needs.parse-event.outputs.event_type }}" in
-            "services-changed")
-              echo "Running backend service tests..."
-              echo "✅ Backend tests passed"
-              ;;
-            "frontend-changed")
-              echo "Running frontend tests..."
-              echo "✅ Frontend tests passed"
-              ;;
-            "tests-changed")
-              echo "Running ${{ needs.parse-event.outputs.component }} test suite..."
-              echo "✅ Test suite validation passed"
-              ;;
-            *)
-              echo "✅ Tests passed"
-              ;;
-          esac
+          # Make test script executable
+          chmod +x scripts/test-infrastructure.sh
+          
+          # Execute infrastructure tests
+          ./scripts/test-infrastructure.sh
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-test-results
+          path: |
+            test-results.xml
+            coverage-report.html
+          retention-days: 30
 
   deploy:
     name: Deploy to ${{ needs.parse-event.outputs.environment }}
@@ -284,7 +314,7 @@ jobs:
             DESCRIPTION="Validation failed"
           elif [[ "${{ needs.run-tests.result }}" == "failure" ]]; then
             OVERALL_STATUS="failure"
-            DESCRIPTION="Tests failed"
+            DESCRIPTION="Infrastructure tests failed"
           elif [[ "${{ needs.deploy.result }}" == "failure" ]]; then
             OVERALL_STATUS="failure"
             DESCRIPTION="Deployment failed"
@@ -340,7 +370,7 @@ jobs:
           echo "Job Results:"
           echo "- Parse Event: ${{ needs.parse-event.result }}"
           echo "- Validate Changes: ${{ needs.validate-changes.result }}"
-          echo "- Run Tests: ${{ needs.run-tests.result }}"
+          echo "- Run Infrastructure Tests: ${{ needs.run-tests.result }}"
           echo "- Deploy: ${{ needs.deploy.result }}"
           echo "- Finalize Status: ${{ needs.finalize-status.result }}"
           echo ""
