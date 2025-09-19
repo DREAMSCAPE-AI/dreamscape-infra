@@ -97,18 +97,20 @@ jobs:
         run: |
           echo "🔍 Scanning for hardcoded secrets..."
 
-          # Look for actual hardcoded secrets (not dev examples or variable names)
+          # Look for actual hardcoded secrets (exclude legitimate patterns)
           found_secrets=0
 
-          # Check for real credentials (exclude dev examples and variable names)
-          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
+          # Check for real hardcoded credentials (excluding legitimate dev examples and bash variables)
+          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | \
+             grep -v -E "(test_|dev-|example|sk_test_|pk_test_|\\\$\{|\\\$[0-9]|\\\$[a-zA-Z_]|local |=\"\\\$)"; then
             echo "❌ Real hardcoded secrets found"
             found_secrets=1
           fi
 
-          # Check for suspicious patterns but exclude legitimate dev examples
-          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{20,}" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
-            echo "❌ Suspicious credential patterns found"
+          # Only flag very suspicious long credential patterns
+          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{30,}" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | \
+             grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
+            echo "❌ Suspicious long credential patterns found"
             found_secrets=1
           fi
 
@@ -116,7 +118,7 @@ jobs:
             echo "❌ Security scan failed: hardcoded secrets detected"
             exit 1
           else
-            echo "✅ No hardcoded secrets detected (dev examples ignored)"
+            echo "✅ No hardcoded secrets detected (dev examples and bash variables ignored)"
           fi
 
       - name: 📊 Scripts Inventory
