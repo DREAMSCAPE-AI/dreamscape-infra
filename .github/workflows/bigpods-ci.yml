@@ -96,21 +96,27 @@ jobs:
       - name: 🔍 Security Scan - Secrets
         run: |
           echo "🔍 Scanning for hardcoded secrets..."
-          secret_patterns=("password.*=" "secret.*=" "key.*=" "token.*=")
-          issues=0
 
-          for pattern in "${secret_patterns[@]}"; do
-            if grep -r -i "$pattern" scripts/bigpods/ --exclude-dir=tests --exclude="*.md"; then
-              echo "⚠️ Potential secret found: $pattern"
-              issues=$((issues + 1))
-            fi
-          done
+          # Look for actual hardcoded secrets (not dev examples or variable names)
+          found_secrets=0
 
-          if [[ $issues -gt 0 ]]; then
-            echo "❌ Security scan failed: $issues potential secrets found"
+          # Check for real credentials (exclude dev examples and variable names)
+          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
+            echo "❌ Real hardcoded secrets found"
+            found_secrets=1
+          fi
+
+          # Check for suspicious patterns but exclude legitimate dev examples
+          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{20,}" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
+            echo "❌ Suspicious credential patterns found"
+            found_secrets=1
+          fi
+
+          if [[ $found_secrets -gt 0 ]]; then
+            echo "❌ Security scan failed: hardcoded secrets detected"
             exit 1
           else
-            echo "✅ No hardcoded secrets detected"
+            echo "✅ No hardcoded secrets detected (dev examples ignored)"
           fi
 
       - name: 📊 Scripts Inventory
