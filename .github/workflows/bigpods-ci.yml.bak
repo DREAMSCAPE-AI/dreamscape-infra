@@ -27,6 +27,10 @@ env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
 
+  # Test Configuration
+  CI_TEST_TIMEOUT: 1800
+  CI_BUILD_TIMEOUT: 2400
+
 jobs:
   # ============================================================================
   # Pre-checks: Validate scripts and configuration
@@ -89,6 +93,34 @@ jobs:
             exit 1
           fi
 
+      - name: 🔍 Security Scan - Secrets
+        run: |
+          echo "🔍 Scanning for hardcoded secrets..."
+
+          # Look for actual hardcoded secrets (exclude legitimate patterns)
+          found_secrets=0
+
+          # Check for real hardcoded credentials (excluding legitimate dev examples and bash variables)
+          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | \
+             grep -v -E "(test_|dev-|example|sk_test_|pk_test_|\\\$\{|\\\$[0-9]|\\\$[a-zA-Z_]|local |=\"\\\$)"; then
+            echo "❌ Real hardcoded secrets found"
+            found_secrets=1
+          fi
+
+          # Only flag very suspicious long credential patterns
+          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{30,}" scripts/bigpods/ --exclude-dir=tests --exclude="*.md" | \
+             grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
+            echo "❌ Suspicious long credential patterns found"
+            found_secrets=1
+          fi
+
+          if [[ $found_secrets -gt 0 ]]; then
+            echo "❌ Security scan failed: hardcoded secrets detected"
+            exit 1
+          else
+            echo "✅ No hardcoded secrets detected (dev examples and bash variables ignored)"
+          fi
+
       - name: 📊 Scripts Inventory
         run: |
           echo "📊 Big Pods Scripts Inventory:"
@@ -99,79 +131,116 @@ jobs:
           done
 
   # ============================================================================
-  # Script Validation: Validate script syntax and basic functionality
+  # Unit Tests: Test common library and script functions
   # ============================================================================
-  script-validation:
-    name: 🧪 Script Validation
+  unit-tests:
+    name: 🧪 Unit Tests
     runs-on: ubuntu-latest
     needs: pre-checks
     if: needs.pre-checks.outputs.scripts-changed == 'true'
-    timeout-minutes: 10
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        test-suite:
+          - common
+          - scripts
 
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🐧 Setup Environment
+      - name: 🐧 Setup Test Environment
         run: |
-          echo "🛠️ Setting up validation environment..."
+          echo "🛠️ Setting up test environment..."
           sudo apt-get update -qq
-          sudo apt-get install -y bc jq curl shellcheck
+          sudo apt-get install -y bc jq curl
 
-      - name: 🧪 Validate Script Syntax
+      - name: 🧪 Run ${{ matrix.test-suite }} Tests
         working-directory: scripts/bigpods
         run: |
-          echo "🧪 Validating Big Pods script syntax..."
+          echo "🧪 Running ${{ matrix.test-suite }} tests..."
 
-          scripts=(
-            "build-bigpods.sh"
-            "dev-bigpods.sh"
-            "debug-bigpods.sh"
-            "deploy-bigpods.sh"
-            "backup-bigpods.sh"
-            "maintenance-bigpods.sh"
-            "logs-bigpods.sh"
-            "monitoring-bigpods.sh"
-            "scale-bigpods.sh"
-            "lib/common.sh"
-          )
+          case "${{ matrix.test-suite }}" in
+            "common")
+              ./tests/test_common.sh --verbose
+              ;;
+            "scripts")
+              ./tests/test_scripts.sh --verbose --skip-docker
+              ;;
+          esac
 
-          for script in "${scripts[@]}"; do
-            echo "🔍 Validating $script..."
+      - name: 📊 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-suite }}
+          path: |
+            /tmp/dreamscape_tests/
+            scripts/bigpods/tests/*.log
+          retention-days: 7
 
-            # Check syntax
-            if bash -n "$script"; then
-              echo "✅ $script: syntax OK"
-            else
-              echo "❌ $script: syntax error"
-              exit 1
-            fi
+  # ============================================================================
+  # Integration Tests: Test with Docker and real containers
+  # ============================================================================
+  integration-tests:
+    name: 🔧 Integration Tests
+    runs-on: ubuntu-latest
+    needs: [pre-checks, unit-tests]
+    if: needs.pre-checks.outputs.scripts-changed == 'true' || needs.pre-checks.outputs.docker-changed == 'true'
+    timeout-minutes: 30
 
-            # Test help option (except for lib/common.sh)
-            if [[ "$script" != "lib/common.sh" ]]; then
-              if timeout 10s ./"$script" --help >/dev/null 2>&1; then
-                echo "✅ $script: help option works"
-              else
-                echo "❌ $script: help option failed"
-                exit 1
-              fi
-            fi
-          done
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
 
-      - name: 📊 Script Validation Summary
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Docker
         run: |
-          echo "✅ All Big Pods scripts validated successfully"
-          echo "📝 Note: Comprehensive tests are run from dreamscape-tests repository"
+          echo "🐳 Setting up Docker environment..."
+          docker --version
+          docker-compose --version || docker compose version
+
+      - name: 🛠️ Setup Test Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bc jq curl apache2-utils
+
+      - name: 🧪 Run Integration Tests
+        working-directory: scripts/bigpods
+        timeout-minutes: 25
+        run: |
+          echo "🧪 Running integration tests with Docker..."
+          ./tests/run_all_tests.sh --verbose --parallel
+
+      - name: 🔍 Docker Images Inventory
+        if: always()
+        run: |
+          echo "🔍 Docker images after tests:"
+          docker images
+
+      - name: 📊 Upload Integration Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            /tmp/dreamscape_tests/
+          retention-days: 7
 
   # ============================================================================
-  # Build Tests: Test Big Pods build process (dry-run only)
+  # Build Tests: Test Big Pods build process
   # ============================================================================
-  build-validation:
-    name: 🏗️ Build Validation
+  build-tests:
+    name: 🏗️ Build Tests
     runs-on: ubuntu-latest
     needs: pre-checks
     if: needs.pre-checks.outputs.scripts-changed == 'true' || needs.pre-checks.outputs.docker-changed == 'true'
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -184,21 +253,22 @@ jobs:
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🏗️ Validate Build ${{ matrix.pod }} Pod
+      - name: 🏗️ Test Build ${{ matrix.pod }} Pod
         working-directory: scripts/bigpods
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
-          echo "🏗️ Validating build for ${{ matrix.pod }} pod..."
+          echo "🏗️ Testing build for ${{ matrix.pod }} pod..."
 
           # Test build script help and validation
           ./build-bigpods.sh --help
 
-          # Test dry-run build (no actual building)
+          # Test dry-run build
           ./build-bigpods.sh --pod ${{ matrix.pod }} --smart --dry-run --verbose
 
-      - name: 📊 Build Validation Summary
+      - name: 📊 Build Cache Info
         run: |
-          echo "✅ Build validation completed for ${{ matrix.pod }} pod"
+          echo "📊 Docker build cache:"
+          docker system df
 
   # ============================================================================
   # Security Tests: Security scanning and validation
@@ -232,50 +302,33 @@ jobs:
             fi
           done
 
-      - name: 🔍 Security Scan - Secrets
-        run: |
-          echo "🔍 Scanning for hardcoded secrets..."
-
-          # Look for actual hardcoded secrets (exclude legitimate patterns)
-          found_secrets=0
-
-          # Check for real hardcoded credentials (excluding legitimate dev examples and bash variables)
-          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude="*.md" | \
-             grep -v -E "(test_|dev-|example|sk_test_|pk_test_|\\\$\{|\\\$[0-9]|\\\$[a-zA-Z_]|local |=\"\\\$)"; then
-            echo "❌ Real hardcoded secrets found"
-            found_secrets=1
-          fi
-
-          # Only flag very suspicious long credential patterns
-          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{30,}" scripts/bigpods/ --exclude="*.md" | \
-             grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
-            echo "❌ Suspicious long credential patterns found"
-            found_secrets=1
-          fi
-
-          if [[ $found_secrets -gt 0 ]]; then
-            echo "❌ Security scan failed: hardcoded secrets detected"
-            exit 1
-          else
-            echo "✅ No hardcoded secrets detected"
-          fi
-
       - name: 🛡️ Container Security Scan
         if: needs.pre-checks.outputs.docker-changed == 'true'
         run: |
           echo "🛡️ Scanning Docker configurations for security issues..."
 
           # Check for privileged containers
-          if grep -r "privileged.*true" docker/ 2>/dev/null; then
+          if grep -r "privileged.*true" docker/; then
             echo "⚠️ Privileged containers detected"
           fi
 
           # Check for host network mode
-          if grep -r "network_mode.*host" docker/ 2>/dev/null; then
+          if grep -r "network_mode.*host" docker/; then
             echo "⚠️ Host network mode detected"
           fi
 
           echo "✅ Container security scan completed"
+
+      - name: 📋 Dependency Vulnerability Check
+        run: |
+          echo "📋 Checking for vulnerable dependencies..."
+
+          # Basic check for outdated base images
+          if grep -r "FROM.*:latest" docker/; then
+            echo "⚠️ Latest tags detected - consider pinning versions"
+          fi
+
+          echo "✅ Dependency check completed"
 
   # ============================================================================
   # Performance Tests: Validate script performance
@@ -283,7 +336,7 @@ jobs:
   performance-tests:
     name: ⚡ Performance Tests
     runs-on: ubuntu-latest
-    needs: [script-validation]
+    needs: [unit-tests]
     if: needs.pre-checks.outputs.scripts-changed == 'true'
     timeout-minutes: 10
 
@@ -329,6 +382,14 @@ jobs:
           avg_time=$((total_time / ${#scripts[@]}))
           echo "📊 Average startup time: ${avg_time}ms"
 
+          if [[ $avg_time -lt 1000 ]]; then
+            echo "🎉 Excellent performance: ${avg_time}ms average"
+          elif [[ $avg_time -lt 2000 ]]; then
+            echo "✅ Good performance: ${avg_time}ms average"
+          else
+            echo "⚠️ Performance could be improved: ${avg_time}ms average"
+          fi
+
   # ============================================================================
   # Documentation Tests: Validate documentation
   # ============================================================================
@@ -342,64 +403,81 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
+      - name: 📚 Validate Documentation
+        run: |
+          echo "📚 Validating documentation..."
+
+          required_docs=(
+            "scripts/bigpods/docs/README.md"
+            "scripts/bigpods/docs/GETTING_STARTED.md"
+            "scripts/bigpods/docs/EXAMPLES.md"
+          )
+
+          for doc in "${required_docs[@]}"; do
+            if [[ -f "$doc" ]]; then
+              echo "✅ $doc exists"
+
+              # Basic content validation
+              if [[ $(wc -l < "$doc") -gt 50 ]]; then
+                echo "✅ $doc has substantial content"
+              else
+                echo "⚠️ $doc seems too short"
+              fi
+            else
+              echo "❌ $doc missing"
+              exit 1
+            fi
+          done
+
       - name: 📖 Check Help Documentation
         working-directory: scripts/bigpods
         run: |
           echo "📖 Validating script help documentation..."
 
-          scripts=(build-bigpods.sh dev-bigpods.sh debug-bigpods.sh deploy-bigpods.sh)
+          scripts=(build-bigpods.sh dev-bigpods.sh debug-bigpods.sh)
 
           for script in "${scripts[@]}"; do
             echo "📖 Testing $script help..."
             help_output=$(./"$script" --help)
 
             # Check for required sections
-            if echo "$help_output" | grep -q "Usage"; then
-              echo "✅ $script has Usage section"
+            if echo "$help_output" | grep -q "USAGE"; then
+              echo "✅ $script has USAGE section"
             else
-              echo "❌ $script missing Usage section"
+              echo "❌ $script missing USAGE section"
               exit 1
             fi
 
-            if echo "$help_output" | grep -q "Example"; then
-              echo "✅ $script has Examples section"
+            if echo "$help_output" | grep -q "EXAMPLES"; then
+              echo "✅ $script has EXAMPLES section"
             else
-              echo "⚠️ $script could use more examples"
+              echo "❌ $script missing EXAMPLES section"
+              exit 1
             fi
           done
 
-      - name: 📚 Validate Documentation Files
-        run: |
-          echo "📚 Validating documentation files..."
-
-          # Check for README files
-          if [[ -f "scripts/bigpods/docs/README.md" ]]; then
-            echo "✅ Big Pods README exists"
-          else
-            echo "⚠️ Consider adding scripts/bigpods/docs/README.md"
-          fi
-
   # ============================================================================
-  # Final Summary: Aggregate all validation results
+  # Final Summary: Aggregate all test results
   # ============================================================================
-  validation-summary:
-    name: 📊 Validation Summary
+  test-summary:
+    name: 📊 Test Summary
     runs-on: ubuntu-latest
-    needs: [pre-checks, script-validation, build-validation, security-tests, performance-tests, documentation-tests]
+    needs: [pre-checks, unit-tests, integration-tests, build-tests, security-tests, performance-tests, documentation-tests]
     if: always()
     timeout-minutes: 5
 
     steps:
-      - name: 📊 Generate Validation Summary
+      - name: 📊 Generate Test Summary
         run: |
-          echo "📊 DreamScape Big Pods CI - Validation Summary"
-          echo "=============================================="
+          echo "📊 DreamScape Big Pods CI - Test Summary"
+          echo "======================================="
           echo ""
 
           # Check results
           echo "🔍 Pre-checks: ${{ needs.pre-checks.result }}"
-          echo "🧪 Script Validation: ${{ needs.script-validation.result }}"
-          echo "🏗️ Build Validation: ${{ needs.build-validation.result }}"
+          echo "🧪 Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "🔧 Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "🏗️ Build Tests: ${{ needs.build-tests.result }}"
           echo "🔒 Security Tests: ${{ needs.security-tests.result }}"
           echo "⚡ Performance Tests: ${{ needs.performance-tests.result }}"
           echo "📚 Documentation Tests: ${{ needs.documentation-tests.result }}"
@@ -409,23 +487,30 @@ jobs:
           failed_jobs=0
 
           [[ "${{ needs.pre-checks.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.script-validation.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.build-validation.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
+          [[ "${{ needs.unit-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
+          [[ "${{ needs.integration-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
+          [[ "${{ needs.build-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
           [[ "${{ needs.security-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
           [[ "${{ needs.performance-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
           [[ "${{ needs.documentation-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
 
           if [[ $failed_jobs -eq 0 ]]; then
-            echo "🎉 All validations passed! Big Pods scripts are ready."
+            echo "🎉 All tests passed! Big Pods suite is ready for deployment."
             echo "✅ Quality gate: PASSED"
-            echo ""
-            echo "📝 Note: Comprehensive tests are available in dreamscape-tests repository"
-            echo "🔗 Branch: DR-331-bigpods-tests"
           else
-            echo "❌ $failed_jobs validation suite(s) failed."
+            echo "❌ $failed_jobs test suite(s) failed."
             echo "❌ Quality gate: FAILED"
             exit 1
           fi
+
+      - name: 📤 Upload CI Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-summary-${{ github.run_number }}
+          path: |
+            /tmp/ci-summary.txt
+          retention-days: 30
 
 # ============================================================================
 # Notification and Status Updates
@@ -433,20 +518,20 @@ jobs:
   notify:
     name: 📢 Notify Results
     runs-on: ubuntu-latest
-    needs: [validation-summary]
+    needs: [test-summary]
     if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     steps:
       - name: 📢 Notify Success
-        if: needs.validation-summary.result == 'success'
+        if: needs.test-summary.result == 'success'
         run: |
-          echo "🎉 DreamScape Big Pods CI validation completed successfully!"
+          echo "🎉 DreamScape Big Pods CI completed successfully!"
           echo "✅ All quality gates passed"
-          echo "🧪 Tests available in dreamscape-tests (DR-331-bigpods-tests branch)"
+          echo "🚀 Ready for deployment"
 
       - name: 📢 Notify Failure
-        if: needs.validation-summary.result == 'failure'
+        if: needs.test-summary.result == 'failure'
         run: |
-          echo "❌ DreamScape Big Pods CI validation failed"
-          echo "🔍 Please review validation results and fix issues"
+          echo "❌ DreamScape Big Pods CI failed"
+          echo "🔍 Please review test results and fix issues"
           echo "📋 Check the Actions tab for detailed logs"
