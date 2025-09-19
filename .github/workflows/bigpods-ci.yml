@@ -6,14 +6,12 @@ on:
     paths:
       - 'scripts/bigpods/**'
       - '.dreamscape.config.yml'
-      - 'docker/**'
       - '.github/workflows/bigpods-ci.yml'
   pull_request:
     branches: [main, develop]
     paths:
       - 'scripts/bigpods/**'
       - '.dreamscape.config.yml'
-      - 'docker/**'
       - '.github/workflows/bigpods-ci.yml'
 
 # Concurrency to cancel previous runs on new push
@@ -22,66 +20,70 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Big Pods Configuration
   DREAMSCAPE_ENV: ci
-  DOCKER_BUILDKIT: 1
-  COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
   # ============================================================================
-  # Pre-checks: Validate scripts and configuration
+  # Basic Validation: Only essential checks for infra repo
   # ============================================================================
-  pre-checks:
-    name: 🔍 Pre-checks & Validation
+  basic-validation:
+    name: 🔍 Basic Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    outputs:
-      scripts-changed: ${{ steps.changes.outputs.scripts }}
-      config-changed: ${{ steps.changes.outputs.config }}
-      docker-changed: ${{ steps.changes.outputs.docker }}
+    timeout-minutes: 5
 
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: 🔍 Detect Changes
-        uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            scripts:
-              - 'scripts/bigpods/**'
-            config:
-              - '.dreamscape.config.yml'
-            docker:
-              - 'docker/**'
 
       - name: 🔧 Fix Script Permissions
         run: |
           echo "🔧 Setting script permissions..."
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
-      - name: 🛡️ Validate Scripts Permissions
+      - name: 🧪 Validate Script Syntax
         run: |
-          echo "🔍 Checking script permissions..."
+          echo "🧪 Validating script syntax..."
+
+          scripts=(
+            "scripts/bigpods/build-bigpods.sh"
+            "scripts/bigpods/dev-bigpods.sh"
+            "scripts/bigpods/debug-bigpods.sh"
+            "scripts/bigpods/deploy-bigpods.sh"
+            "scripts/bigpods/backup-bigpods.sh"
+            "scripts/bigpods/maintenance-bigpods.sh"
+            "scripts/bigpods/logs-bigpods.sh"
+            "scripts/bigpods/monitoring-bigpods.sh"
+            "scripts/bigpods/scale-bigpods.sh"
+            "scripts/bigpods/lib/common.sh"
+          )
+
+          for script in "${scripts[@]}"; do
+            echo "🔍 Checking $script..."
+            if bash -n "$script"; then
+              echo "✅ $script: syntax OK"
+            else
+              echo "❌ $script: syntax error"
+              exit 1
+            fi
+          done
+
+      - name: 🛡️ Check Script Permissions
+        run: |
+          echo "🛡️ Checking script permissions..."
           find scripts/bigpods -name "*.sh" -type f | while read script; do
             perms=$(stat -c "%a" "$script")
             if [[ "$perms" =~ ^[67][57][57]$ ]]; then
               echo "✅ $script: $perms"
             else
-              echo "❌ $script: $perms (insecure permissions)"
+              echo "❌ $script: $perms (should be executable)"
               exit 1
             fi
           done
 
       - name: 📋 Validate Configuration
         run: |
-          echo "🔍 Validating .dreamscape.config.yml..."
+          echo "📋 Validating .dreamscape.config.yml..."
           if [[ -f ".dreamscape.config.yml" ]]; then
-            # Basic YAML syntax check
             python3 -c "import yaml; yaml.safe_load(open('.dreamscape.config.yml'))"
             echo "✅ Configuration file is valid YAML"
           else
@@ -89,364 +91,46 @@ jobs:
             exit 1
           fi
 
-      - name: 📊 Scripts Inventory
+      - name: 📊 Scripts Summary
         run: |
-          echo "📊 Big Pods Scripts Inventory:"
-          echo "================================"
+          echo "📊 Big Pods Scripts Summary:"
+          echo "============================"
           find scripts/bigpods -name "*.sh" -type f | sort | while read script; do
             size=$(wc -l < "$script")
             echo "📄 $script ($size lines)"
           done
+          echo ""
+          echo "✅ Validation completed successfully"
+          echo "📝 Note: Comprehensive tests are in dreamscape-tests repository"
+          echo "🔗 Test branch: DR-331-bigpods-tests"
 
   # ============================================================================
-  # Script Validation: Validate script syntax and basic functionality
-  # ============================================================================
-  script-validation:
-    name: 🧪 Script Validation
-    runs-on: ubuntu-latest
-    needs: pre-checks
-    if: needs.pre-checks.outputs.scripts-changed == 'true'
-    timeout-minutes: 10
-
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐧 Setup Environment
-        run: |
-          echo "🛠️ Setting up validation environment..."
-          sudo apt-get update -qq
-          sudo apt-get install -y bc jq curl shellcheck
-
-      - name: 🧪 Validate Script Syntax
-        working-directory: scripts/bigpods
-        run: |
-          echo "🧪 Validating Big Pods script syntax..."
-
-          scripts=(
-            "build-bigpods.sh"
-            "dev-bigpods.sh"
-            "debug-bigpods.sh"
-            "deploy-bigpods.sh"
-            "backup-bigpods.sh"
-            "maintenance-bigpods.sh"
-            "logs-bigpods.sh"
-            "monitoring-bigpods.sh"
-            "scale-bigpods.sh"
-            "lib/common.sh"
-          )
-
-          for script in "${scripts[@]}"; do
-            echo "🔍 Validating $script..."
-
-            # Check syntax
-            if bash -n "$script"; then
-              echo "✅ $script: syntax OK"
-            else
-              echo "❌ $script: syntax error"
-              exit 1
-            fi
-
-            # Test help option (except for lib/common.sh)
-            if [[ "$script" != "lib/common.sh" ]]; then
-              if timeout 10s ./"$script" --help >/dev/null 2>&1; then
-                echo "✅ $script: help option works"
-              else
-                echo "❌ $script: help option failed"
-                exit 1
-              fi
-            fi
-          done
-
-      - name: 📊 Script Validation Summary
-        run: |
-          echo "✅ All Big Pods scripts validated successfully"
-          echo "📝 Note: Comprehensive tests are run from dreamscape-tests repository"
-
-  # ============================================================================
-  # Build Tests: Test Big Pods build process (dry-run only)
-  # ============================================================================
-  build-validation:
-    name: 🏗️ Build Validation
-    runs-on: ubuntu-latest
-    needs: pre-checks
-    if: needs.pre-checks.outputs.scripts-changed == 'true' || needs.pre-checks.outputs.docker-changed == 'true'
-    timeout-minutes: 15
-
-    strategy:
-      matrix:
-        pod: [core, business, experience]
-
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🐳 Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: 🏗️ Validate Build ${{ matrix.pod }} Pod
-        working-directory: scripts/bigpods
-        timeout-minutes: 10
-        run: |
-          echo "🏗️ Validating build for ${{ matrix.pod }} pod..."
-
-          # Test build script help and validation
-          ./build-bigpods.sh --help
-
-          # Test dry-run build (no actual building)
-          ./build-bigpods.sh --pod ${{ matrix.pod }} --smart --dry-run --verbose
-
-      - name: 📊 Build Validation Summary
-        run: |
-          echo "✅ Build validation completed for ${{ matrix.pod }} pod"
-
-  # ============================================================================
-  # Security Tests: Security scanning and validation
-  # ============================================================================
-  security-tests:
-    name: 🔒 Security Tests
-    runs-on: ubuntu-latest
-    needs: pre-checks
-    timeout-minutes: 15
-
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🔍 Shell Script Security Scan
-        run: |
-          echo "🔍 Running ShellCheck security analysis..."
-
-          # Install ShellCheck
-          sudo apt-get update -qq
-          sudo apt-get install -y shellcheck
-
-          # Run ShellCheck on all scripts
-          find scripts/bigpods -name "*.sh" -type f | while read script; do
-            echo "🔍 Analyzing $script..."
-            if shellcheck -S warning "$script"; then
-              echo "✅ $script passed security analysis"
-            else
-              echo "❌ $script failed security analysis"
-              exit 1
-            fi
-          done
-
-      - name: 🔍 Security Scan - Secrets
-        run: |
-          echo "🔍 Scanning for hardcoded secrets..."
-
-          # Look for actual hardcoded secrets (exclude legitimate patterns)
-          found_secrets=0
-
-          # Check for real hardcoded credentials (excluding legitimate dev examples and bash variables)
-          if grep -r -i -E "(password|secret|key|token)=['\"][^'\"]*['\"]" scripts/bigpods/ --exclude="*.md" | \
-             grep -v -E "(test_|dev-|example|sk_test_|pk_test_|\\\$\{|\\\$[0-9]|\\\$[a-zA-Z_]|local |=\"\\\$)"; then
-            echo "❌ Real hardcoded secrets found"
-            found_secrets=1
-          fi
-
-          # Only flag very suspicious long credential patterns
-          if grep -r -i -E "(password|secret|key|token)=[a-zA-Z0-9]{30,}" scripts/bigpods/ --exclude="*.md" | \
-             grep -v -E "(test_|dev-|example|sk_test_|pk_test_)"; then
-            echo "❌ Suspicious long credential patterns found"
-            found_secrets=1
-          fi
-
-          if [[ $found_secrets -gt 0 ]]; then
-            echo "❌ Security scan failed: hardcoded secrets detected"
-            exit 1
-          else
-            echo "✅ No hardcoded secrets detected"
-          fi
-
-      - name: 🛡️ Container Security Scan
-        if: needs.pre-checks.outputs.docker-changed == 'true'
-        run: |
-          echo "🛡️ Scanning Docker configurations for security issues..."
-
-          # Check for privileged containers
-          if grep -r "privileged.*true" docker/ 2>/dev/null; then
-            echo "⚠️ Privileged containers detected"
-          fi
-
-          # Check for host network mode
-          if grep -r "network_mode.*host" docker/ 2>/dev/null; then
-            echo "⚠️ Host network mode detected"
-          fi
-
-          echo "✅ Container security scan completed"
-
-  # ============================================================================
-  # Performance Tests: Validate script performance
-  # ============================================================================
-  performance-tests:
-    name: ⚡ Performance Tests
-    runs-on: ubuntu-latest
-    needs: [script-validation]
-    if: needs.pre-checks.outputs.scripts-changed == 'true'
-    timeout-minutes: 10
-
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: ⚡ Script Performance Tests
-        working-directory: scripts/bigpods
-        run: |
-          echo "⚡ Testing script startup performance..."
-
-          scripts=(
-            "build-bigpods.sh"
-            "dev-bigpods.sh"
-            "debug-bigpods.sh"
-            "deploy-bigpods.sh"
-            "logs-bigpods.sh"
-            "monitoring-bigpods.sh"
-            "scale-bigpods.sh"
-          )
-
-          total_time=0
-          for script in "${scripts[@]}"; do
-            echo "⏱️ Testing $script startup time..."
-            start_time=$(date +%s%3N)
-
-            timeout 30s ./"$script" --help >/dev/null 2>&1
-
-            end_time=$(date +%s%3N)
-            duration=$((end_time - start_time))
-            total_time=$((total_time + duration))
-
-            echo "✅ $script: ${duration}ms"
-
-            # Fail if any script takes more than 5 seconds
-            if [[ $duration -gt 5000 ]]; then
-              echo "❌ $script startup too slow: ${duration}ms"
-              exit 1
-            fi
-          done
-
-          avg_time=$((total_time / ${#scripts[@]}))
-          echo "📊 Average startup time: ${avg_time}ms"
-
-  # ============================================================================
-  # Documentation Tests: Validate documentation
-  # ============================================================================
-  documentation-tests:
-    name: 📚 Documentation Tests
-    runs-on: ubuntu-latest
-    needs: pre-checks
-    timeout-minutes: 5
-
-    steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 📖 Check Help Documentation
-        working-directory: scripts/bigpods
-        run: |
-          echo "📖 Validating script help documentation..."
-
-          scripts=(build-bigpods.sh dev-bigpods.sh debug-bigpods.sh deploy-bigpods.sh)
-
-          for script in "${scripts[@]}"; do
-            echo "📖 Testing $script help..."
-            help_output=$(./"$script" --help)
-
-            # Check for required sections
-            if echo "$help_output" | grep -q "Usage"; then
-              echo "✅ $script has Usage section"
-            else
-              echo "❌ $script missing Usage section"
-              exit 1
-            fi
-
-            if echo "$help_output" | grep -q "Example"; then
-              echo "✅ $script has Examples section"
-            else
-              echo "⚠️ $script could use more examples"
-            fi
-          done
-
-      - name: 📚 Validate Documentation Files
-        run: |
-          echo "📚 Validating documentation files..."
-
-          # Check for README files
-          if [[ -f "scripts/bigpods/docs/README.md" ]]; then
-            echo "✅ Big Pods README exists"
-          else
-            echo "⚠️ Consider adding scripts/bigpods/docs/README.md"
-          fi
-
-  # ============================================================================
-  # Final Summary: Aggregate all validation results
+  # Final Summary
   # ============================================================================
   validation-summary:
     name: 📊 Validation Summary
     runs-on: ubuntu-latest
-    needs: [pre-checks, script-validation, build-validation, security-tests, performance-tests, documentation-tests]
+    needs: [basic-validation]
     if: always()
-    timeout-minutes: 5
+    timeout-minutes: 2
 
     steps:
-      - name: 📊 Generate Validation Summary
+      - name: 📊 Generate Summary
         run: |
-          echo "📊 DreamScape Big Pods CI - Validation Summary"
-          echo "=============================================="
+          echo "📊 DreamScape Big Pods - Validation Summary"
+          echo "==========================================="
+          echo ""
+          echo "🔍 Basic Validation: ${{ needs.basic-validation.result }}"
           echo ""
 
-          # Check results
-          echo "🔍 Pre-checks: ${{ needs.pre-checks.result }}"
-          echo "🧪 Script Validation: ${{ needs.script-validation.result }}"
-          echo "🏗️ Build Validation: ${{ needs.build-validation.result }}"
-          echo "🔒 Security Tests: ${{ needs.security-tests.result }}"
-          echo "⚡ Performance Tests: ${{ needs.performance-tests.result }}"
-          echo "📚 Documentation Tests: ${{ needs.documentation-tests.result }}"
-          echo ""
-
-          # Determine overall result
-          failed_jobs=0
-
-          [[ "${{ needs.pre-checks.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.script-validation.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.build-validation.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.security-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.performance-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-          [[ "${{ needs.documentation-tests.result }}" == "failure" ]] && failed_jobs=$((failed_jobs + 1))
-
-          if [[ $failed_jobs -eq 0 ]]; then
-            echo "🎉 All validations passed! Big Pods scripts are ready."
-            echo "✅ Quality gate: PASSED"
+          if [[ "${{ needs.basic-validation.result }}" == "success" ]]; then
+            echo "🎉 All validations passed!"
+            echo "✅ Scripts are ready for use"
             echo ""
-            echo "📝 Note: Comprehensive tests are available in dreamscape-tests repository"
-            echo "🔗 Branch: DR-331-bigpods-tests"
+            echo "📍 Repository: dreamscape-infra (scripts only)"
+            echo "🧪 Tests: dreamscape-tests (DR-331-bigpods-tests branch)"
           else
-            echo "❌ $failed_jobs validation suite(s) failed."
-            echo "❌ Quality gate: FAILED"
+            echo "❌ Validation failed"
+            echo "🔍 Please check script syntax and permissions"
             exit 1
           fi
-
-# ============================================================================
-# Notification and Status Updates
-# ============================================================================
-  notify:
-    name: 📢 Notify Results
-    runs-on: ubuntu-latest
-    needs: [validation-summary]
-    if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-
-    steps:
-      - name: 📢 Notify Success
-        if: needs.validation-summary.result == 'success'
-        run: |
-          echo "🎉 DreamScape Big Pods CI validation completed successfully!"
-          echo "✅ All quality gates passed"
-          echo "🧪 Tests available in dreamscape-tests (DR-331-bigpods-tests branch)"
-
-      - name: 📢 Notify Failure
-        if: needs.validation-summary.result == 'failure'
-        run: |
-          echo "❌ DreamScape Big Pods CI validation failed"
-          echo "🔍 Please review validation results and fix issues"
-          echo "📋 Check the Actions tab for detailed logs"

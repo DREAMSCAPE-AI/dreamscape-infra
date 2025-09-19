@@ -131,12 +131,12 @@ parse_args() {
                 shift
                 ;;
             --verbose)
-                VERBOSE=true
+                export VERBOSE=true
                 shift
                 ;;
             --debug)
-                DEBUG=true
-                VERBOSE=true
+                export DEBUG=true
+                export VERBOSE=true
                 shift
                 ;;
             -h|--help)
@@ -682,7 +682,8 @@ check_for_exposed_secrets() {
 generate_maintenance_report() {
     log_info "Generating maintenance report..."
 
-    local report_file="/tmp/dreamscape_maintenance_$(date +%Y%m%d_%H%M%S).txt"
+    local report_file
+    report_file="/tmp/dreamscape_maintenance_$(date +%Y%m%d_%H%M%S).txt"
 
     {
         echo "DreamScape Big Pods - Maintenance Report"
