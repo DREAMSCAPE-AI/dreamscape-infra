@@ -528,7 +528,7 @@ test_security() {
         help_output=$("$SCRIPT_DIR/$script" --help 2>&1)
 
         # Check for potential secret exposure
-        if echo "$help_output" | grep -qi "password\|secret\|key" | grep -v "PASSWORD\|SECRET\|KEY"; then
+        if echo "$help_output" | grep -iE "password|secret|key" | grep -vE "PASSWORD|SECRET|KEY" | grep .; then
             echo -e "  ${TEST_YELLOW}⚠${TEST_NC} $script help may contain sensitive terms"
         fi
     done

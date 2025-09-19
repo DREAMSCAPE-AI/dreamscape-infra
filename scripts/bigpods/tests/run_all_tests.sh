@@ -319,7 +319,11 @@ run_tests_sequential() {
         fi
     fi
 
-    return $([ "$all_passed" = true ] && echo 0 || echo 1)
+    if [ "$all_passed" = true ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Run performance tests

@@ -167,7 +167,21 @@ get_system_metrics() {
     if command -v top >/dev/null 2>&1; then
         cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' || echo "0")
     elif command -v vmstat >/dev/null 2>&1; then
-        cpu_usage=$(vmstat 1 2 | tail -1 | awk '{print 100-$15}' || echo "0")
+        # Dynamically determine the position of the "id" (CPU idle) field in vmstat output
+        local id_field
+        id_field=$(vmstat 1 2 | head -2 | tail -1 | awk '{
+            for (i=1; i<=NF; i++) {
+                if ($i == "id") {
+                    print i;
+                    break;
+                }
+            }
+        }')
+        if [[ -n "$id_field" ]]; then
+            cpu_usage=$(vmstat 1 2 | tail -1 | awk -v id="$id_field" '{print 100-$id}' || echo "0")
+        else
+            cpu_usage="N/A"
+        fi
     else
         cpu_usage="N/A"
     fi

@@ -324,8 +324,11 @@ validate_deployment() {
             local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
 
             if ! docker manifest inspect "$image_name" >/dev/null 2>&1; then
-                log_error "Image not found: $image_name"
-                return 1
+                log_warn "docker manifest inspect failed for $image_name. Attempting fallback validation with docker pull..."
+                if ! docker pull "$image_name" >/dev/null 2>&1; then
+                    log_error "Image not found or inaccessible: $image_name. Both docker manifest inspect and docker pull failed. Please check registry type, authentication, and image existence."
+                    return 1
+                fi
             fi
         done
 

@@ -89,10 +89,12 @@ cleanup_on_exit() {
     log_debug "Performing cleanup operations..."
 }
 
-# Set error handling
-set -eE
-trap 'handle_error $LINENO' ERR
-trap 'cleanup_on_exit' EXIT
+# Error handling setup (opt-in)
+enable_common_error_handling() {
+    set -eE
+    trap 'handle_error $LINENO' ERR
+    trap 'cleanup_on_exit' EXIT
+}
 
 # Configuration functions
 load_config() {
