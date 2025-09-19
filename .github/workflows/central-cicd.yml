@@ -211,26 +211,59 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy with strategy ${{ needs.parse-event.outputs.strategy }}
+      - name: Install kubectl and kustomize
         run: |
-          echo "🚀 Deploying to ${{ needs.parse-event.outputs.environment }} using ${{ needs.parse-event.outputs.strategy }} strategy..."
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+          # Install kustomize
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+          # Verify installations
+          kubectl version --client
+          kustomize version
+
+      - name: Setup SSH for K3s access
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.K3S_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.K3S_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to K3s with strategy ${{ needs.parse-event.outputs.strategy }}
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          IMAGE_TAG: ${{ needs.parse-event.outputs.source_sha || 'main' }}
+        run: |
+          echo "🚀 Starting K3s deployment to ${{ needs.parse-event.outputs.environment }}..."
           
-          case "${{ needs.parse-event.outputs.strategy }}" in
-            "blue-green")
-              echo "Executing blue-green deployment..."
-              ;;
-            "rolling")
-              echo "Executing rolling deployment..."
-              ;;
-            "docs-deploy")
-              echo "Deploying documentation..."
-              ;;
-            *)
-              echo "Executing standard deployment..."
-              ;;
-          esac
+          # Make deployment script executable
+          chmod +x scripts/deploy-k3s.sh
           
-          echo "✅ Deployment completed successfully"
+          # Execute K3s deployment
+          ./scripts/deploy-k3s.sh \
+            "${{ needs.parse-event.outputs.environment }}" \
+            "${{ needs.parse-event.outputs.strategy }}" \
+            "${IMAGE_TAG}"
+
+      - name: Post-deployment validation
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+        run: |
+          echo "🔍 Running post-deployment validation..."
+          
+          # Setup kubectl again for validation
+          ssh -o StrictHostKeyChecking=no ubuntu@$K3S_HOST "sudo cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/$K3S_HOST/g" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          
+          # Check deployment status
+          kubectl get pods -n "dreamscape-${{ needs.parse-event.outputs.environment }}" --output=wide
+          kubectl get services -n "dreamscape-${{ needs.parse-event.outputs.environment }}"
+          
+          echo "✅ Post-deployment validation completed"
 
   finalize-status:
     name: Finalize Status
