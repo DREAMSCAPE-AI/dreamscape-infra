@@ -63,6 +63,11 @@ jobs:
             docker:
               - 'docker/**'
 
+      - name: 🔧 Fix Script Permissions
+        run: |
+          echo "🔧 Setting script permissions..."
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
+
       - name: 🛡️ Validate Scripts Permissions
         run: |
           echo "🔍 Checking script permissions..."
