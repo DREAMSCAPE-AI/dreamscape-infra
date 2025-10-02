@@ -1,0 +1,227 @@
+# Docker Compose for DreamScape Business Pod Testing
+# DR-336: INFRA-010.3 - Configuration Supervisor et Orchestration
+# Multi-process container with Voyage Service, Ai Service, and Payment Service
+
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7-jammy
+    container_name: dreamscape-business-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: dreamscape
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - business-pod-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: dreamscape-business-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - business-pod-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Business Pod - Multi-service container with Supervisor
+  business-pod:
+    build:
+      context: ./dreamscape-infrastructure/business-pod
+      dockerfile: Dockerfile
+    container_name: dreamscape-business-pod
+    restart: unless-stopped
+    ports:
+      - "3003:3003"  # Voyage Service (direct access for testting)
+      - "3004:3004"  # Ai Service (direct access for testing)
+      - "3005:3005"  # Payment Service (direct access for testing)
+    environment:
+      # Node.js environment
+      - NODE_ENV=production
+      
+      # Database connections
+      - DATABASE_URL=mongodb://admin:password123@mongodb:27017/dreamscape?authSource=admin
+      - REDIS_URL=redis://redis:6379
+
+      # Voyage Service configuration
+      - VOYAGE_SERVICE_PORT=3003
+      
+      # Ai Service configuration
+      - AI_SERVICE_PORT=3004
+      - AI_API_KEY=your-ai-service-api-key-change-in-production-business-pod
+
+      # Payment Service configuration
+      - PAYMENT_SERVICE_PORT=3005
+      - PAYMENT_PROVIDER_API_KEY=PAYMENT_KEY
+
+      # Supervisor configuration
+      - SUPERVISOR_USER=admin
+      - SUPERVISOR_PASS=dreamscape_supervisor_123
+      
+      # Application URLs
+      - VOYAGE_SERVICE_URL=http://localhost:3003
+      - AI_SERVICE_URL=http://localhost:3004
+      - PAYMENT_SERVICE_URL=http://localhost:3005
+      
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FORMAT=combined
+      
+      # Monitoring
+      - HEALTH_CHECK_INTERVAL=30
+      - MEMORY_THRESHOLD=85
+      - MEMORY_CRITICAL_THRESHOLD=95
+    volumes:
+      # Persistent logs
+      - business_pod_logs:/var/log/supervisor
+      - nginx_logs:/var/log/nginx
+      
+      # Persistent uploads
+      - user_uploads:/app/user/uploads
+      
+      # Configuration files (for development)
+      - ./dreamscape-infrastructure/business-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      
+      # Health status files (for external monitoring)
+      - business_pod_status:/tmp
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - business-pod-network
+    healthcheck:
+      test: ["CMD", "python3", "/app/scripts/business_pod_health_check.py"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.dreamscape.service=business-pod"
+      - "com.dreamscape.version=1.0.0"
+      - "com.dreamscape.environment=test"
+      - "com.dreamscape.processes=voyage-service,ai-service,payment-service"
+
+  # Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dreamscape-business-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus-business-pod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=http://localhost:9090'
+    depends_on:
+      - business-pod
+    networks:
+      - business-pod-network
+    profiles:
+      - monitoring
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dreamscape-business-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - business-pod-network
+    profiles:
+      - monitoring
+
+  # Log aggregation with Fluentd (optional)
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: dreamscape-business-fluentd
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - business_pod_logs:/var/log/supervisor:ro
+      - nginx_logs:/var/log/nginx:ro
+    depends_on:
+      - business-pod
+    networks:
+      - business-pod-network
+    profiles:
+      - logging
+
+volumes:
+  mongodb_data:
+    name: dreamscape_business_mongodb_data
+    driver: local
+  redis_data:
+    name: dreamscape_business_redis_data 
+    driver: local
+  business_pod_logs:
+    name: dreamscape_business_pod_logs
+    driver: local
+  voyage_logs:
+    name: dreamscape_business_voyage_logs
+    driver: local
+  ai_logs:
+    name: dreamscape_business_ai_logs
+    driver: local
+  payment_logs:
+    name: dreamscape_business_payment_logs
+    driver: local
+  ai_uploads:
+    name: dreamscape_business_ai_uploads
+    driver: local
+  business_pod_status:
+    name: dreamscape_business_pod_status
+    driver: local
+  prometheus_data:
+    name: dreamscape_business_prometheus_data
+    driver: local
+  grafana_data:
+    name: dreamscape_business_grafana_data
+    driver: local
+
+networks:
+  business-pod-network:
+    name: dreamscape-business-pod-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
