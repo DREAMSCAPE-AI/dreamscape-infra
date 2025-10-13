@@ -1,0 +1,86 @@
+# DreamScape Business Pod - Development Build
+# Voyage Service + AI Service + Payment Service
+# Architecture Hybride: 6-repos → 3-Big-Pods
+# DR-328: Hot reload enabled for local development
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    supervisor \
+    curl \
+    bash \
+    git \
+    python3 \
+    make \
+    g++ \
+    imagemagick \
+    ffmpeg
+
+# Create application directories
+RUN mkdir -p /app/voyage /app/ai /app/payment /var/log/supervisor
+
+# Set working directory
+WORKDIR /app
+
+# Install nodemon globally for hot reload
+RUN npm install -g nodemon typescript ts-node
+
+# Copy package files for all services (will be overridden by volume mounts)
+# These are just placeholders for initial build
+RUN echo '{"name":"voyage-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/voyage/package.json
+RUN echo '{"name":"ai-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/ai/package.json
+RUN echo '{"name":"payment-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/payment/package.json
+
+# Install dependencies (will be overridden, but needed for build)
+RUN cd /app/voyage && npm install --silent || true
+RUN cd /app/ai && npm install --silent || true
+RUN cd /app/payment && npm install --silent || true
+
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisord.conf
+
+# Create startup script
+RUN cat > /start.sh <<'EOF'
+#!/bin/bash
+set -e
+
+echo "🚀 Starting DreamScape Business Pod (Development)"
+
+# Install/update dependencies if package.json changed
+if [ -f /app/voyage/package.json ]; then
+    echo "📦 Installing Voyage Service dependencies..."
+    cd /app/voyage && npm install --silent
+fi
+
+if [ -f /app/ai/package.json ]; then
+    echo "📦 Installing AI Service dependencies..."
+    cd /app/ai && npm install --silent
+fi
+
+if [ -f /app/payment/package.json ]; then
+    echo "📦 Installing Payment Service dependencies..."
+    cd /app/payment && npm install --silent
+fi
+
+# Wait for dependencies
+echo "⏳ Waiting for infrastructure services..."
+timeout 60 bash -c 'until curl -f http://postgres:5432 2>/dev/null; do sleep 2; done' || true
+timeout 60 bash -c 'until curl -f http://redis:6379 2>/dev/null; do sleep 2; done' || true
+
+# Start supervisor (manages all 3 services)
+echo "✅ Starting services with Supervisor..."
+exec /usr/bin/supervisord -c /etc/supervisord.conf
+EOF
+
+RUN chmod +x /start.sh
+
+# Expose ports
+EXPOSE 3003 3004 3005 9231 9232 9233
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3003/health || exit 1
+
+# Start services
+CMD ["/start.sh"]
