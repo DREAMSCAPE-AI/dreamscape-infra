@@ -14,6 +14,7 @@ terraform/.terraform.lock.hcl
 # Environment files
 .env
 .env.local
+.env.bigpods.local
 *.pem
 *.key
 .secrets/
