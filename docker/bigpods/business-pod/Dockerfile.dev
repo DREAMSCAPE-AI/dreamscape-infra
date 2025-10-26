@@ -83,4 +83,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:3003/health || exit 1
 
 # Start services
+RUN chmod +x /start.sh
+RUN dos2unix /start.sh 2>/dev/null || sed -i 's/\r$//' /start.sh
 CMD ["/start.sh"]
