@@ -13,6 +13,14 @@ services:
       context: ./bigpods/core-pod/
       dockerfile: Dockerfile.dev
     container_name: dreamscape-core-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "80:80"         # NGINX Gateway
       - "443:443"       # NGINX SSL
@@ -64,6 +72,14 @@ services:
       context: ./bigpods/business-pod/
       dockerfile: Dockerfile.dev
     container_name: dreamscape-business-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "3003:3003"     # Voyage Service
       - "3004:3004"     # AI Service
@@ -125,6 +141,14 @@ services:
       context: ./bigpods/experience-pod/
       dockerfile: Dockerfile.dev
     container_name: dreamscape-experience-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "3000:80"       # Web Client (Vite dev server proxied via NGINX)
       - "5173:5173"     # Vite HMR direct access
@@ -173,6 +197,14 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: dreamscape-postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     environment:
       POSTGRES_DB: dreamscape_dev
       POSTGRES_USER: dev
@@ -203,6 +235,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: dreamscape-redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     ports:
       - "6379:6379"
     volumes:
@@ -219,6 +259,14 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: dreamscape-kafka
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
     environment:
       # KRaft mode (no Zookeeper)
       KAFKA_ENABLE_KRAFT: 'true'
@@ -256,6 +304,14 @@ services:
   minio:
     image: minio/minio:latest
     container_name: dreamscape-minio
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: dreamscape-dev
