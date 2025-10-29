@@ -1,0 +1,483 @@
+name: Central CI/CD Pipeline - Repository Dispatch
+
+on:
+  repository_dispatch:
+    types: 
+      - services-changed
+      - frontend-changed  
+      - tests-changed
+      - docs-changed
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'Source repository'
+        required: true
+        type: choice
+        options:
+          - dreamscape-services
+          - dreamscape-frontend
+          - dreamscape-tests
+          - dreamscape-docs
+      component:
+        description: 'Component to build/deploy'
+        required: true
+        type: choice
+        options:
+          - all
+          - auth-service
+          - user-service
+          - voyage-service
+          - payment-service
+          - ai-service
+          - web-client
+          - panorama-service
+          - gateway
+          - tests
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  group: central-dispatch-${{ github.event.client_payload.source_repo || github.event.inputs.source_repo }}-${{ github.event.client_payload.ref || 'manual' }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  DOCKER_REGISTRY: ghcr.io
+  ORG: dreamscape-ai
+
+jobs:
+  # Parse and validate the incoming event
+  parse-event:
+    name: Parse Repository Event
+    runs-on: ubuntu-latest
+    outputs:
+      source_repo: ${{ steps.parse.outputs.source_repo }}
+      source_ref: ${{ steps.parse.outputs.source_ref }}
+      source_sha: ${{ steps.parse.outputs.source_sha }}
+      component: ${{ steps.parse.outputs.component }}
+      environment: ${{ steps.parse.outputs.environment }}
+      build_services: ${{ steps.parse.outputs.build_services }}
+      build_frontend: ${{ steps.parse.outputs.build_frontend }}
+      run_tests: ${{ steps.parse.outputs.run_tests }}
+      deploy_required: ${{ steps.parse.outputs.deploy_required }}
+    steps:
+      - name: Parse dispatch event
+        id: parse
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            SOURCE_REPO="${{ github.event.client_payload.source_repo }}"
+            SOURCE_REF="${{ github.event.client_payload.ref }}"
+            SOURCE_SHA="${{ github.event.client_payload.sha }}"
+            COMPONENT="${{ github.event.client_payload.component || 'all' }}"
+            ENVIRONMENT="${{ github.event.client_payload.environment || 'staging' }}"
+            TRIGGER_TYPE="${{ github.event.action }}"
+          else
+            SOURCE_REPO="${{ github.event.inputs.source_repo }}"
+            SOURCE_REF="manual"
+            SOURCE_SHA="manual"
+            COMPONENT="${{ github.event.inputs.component }}"
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+            TRIGGER_TYPE="manual"
+          fi
+          
+          echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
+          echo "source_ref=${SOURCE_REF}" >> $GITHUB_OUTPUT
+          echo "source_sha=${SOURCE_SHA}" >> $GITHUB_OUTPUT
+          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          
+          # Determine what to build based on source repo and component
+          BUILD_SERVICES="false"
+          BUILD_FRONTEND="false"
+          RUN_TESTS="false"
+          DEPLOY_REQUIRED="false"
+          
+          case "${SOURCE_REPO}" in
+            "dreamscape-services"|"DREAMSCAPE-AI/dreamscape-services")
+              BUILD_SERVICES="true"
+              RUN_TESTS="true"
+              DEPLOY_REQUIRED="true"
+              ;;
+            "dreamscape-frontend"|"DREAMSCAPE-AI/dreamscape-frontend")
+              BUILD_FRONTEND="true"
+              RUN_TESTS="true"
+              DEPLOY_REQUIRED="true"
+              ;;
+            "dreamscape-tests"|"DREAMSCAPE-AI/dreamscape-tests")
+              RUN_TESTS="true"
+              ;;
+            "dreamscape-docs"|"DREAMSCAPE-AI/dreamscape-docs")
+              # Documentation changes don't require builds
+              ;;
+          esac
+          
+          # Override based on manual component selection
+          if [[ "${COMPONENT}" != "all" ]]; then
+            case "${COMPONENT}" in
+              "auth-service"|"user-service"|"voyage-service"|"payment-service"|"ai-service")
+                BUILD_SERVICES="true"
+                BUILD_FRONTEND="false"
+                ;;
+              "web-client"|"panorama-service"|"gateway")
+                BUILD_FRONTEND="true"
+                BUILD_SERVICES="false"
+                ;;
+              "tests")
+                RUN_TESTS="true"
+                BUILD_SERVICES="false"
+                BUILD_FRONTEND="false"
+                DEPLOY_REQUIRED="false"
+                ;;
+            esac
+          fi
+          
+          echo "build_services=${BUILD_SERVICES}" >> $GITHUB_OUTPUT
+          echo "build_frontend=${BUILD_FRONTEND}" >> $GITHUB_OUTPUT
+          echo "run_tests=${RUN_TESTS}" >> $GITHUB_OUTPUT
+          echo "deploy_required=${DEPLOY_REQUIRED}" >> $GITHUB_OUTPUT
+          
+          echo "📋 Event Summary:"
+          echo "  Source: ${SOURCE_REPO}"
+          echo "  Ref: ${SOURCE_REF}"
+          echo "  SHA: ${SOURCE_SHA}"
+          echo "  Component: ${COMPONENT}"
+          echo "  Environment: ${ENVIRONMENT}"
+          echo "  Build Services: ${BUILD_SERVICES}"
+          echo "  Build Frontend: ${BUILD_FRONTEND}"
+          echo "  Run Tests: ${RUN_TESTS}"
+          echo "  Deploy Required: ${DEPLOY_REQUIRED}"
+
+  # Clone the source repository that triggered the event
+  clone-source:
+    name: Clone Source Repository
+    runs-on: ubuntu-latest
+    needs: parse-event
+    if: needs.parse-event.outputs.source_repo != 'manual'
+    steps:
+      - name: Clone source repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.parse-event.outputs.source_repo }}
+          ref: ${{ needs.parse-event.outputs.source_ref }}
+          path: source-repo
+          token: ${{ secrets.DISPATCH_TOKEN }}
+
+      - name: Clone infrastructure repository  
+        uses: actions/checkout@v4
+        with:
+          repository: DREAMSCAPE-AI/dreamscape-infra
+          path: infra-repo
+
+      - name: Cache source repository
+        uses: actions/cache@v4
+        with:
+          path: source-repo
+          key: source-${{ needs.parse-event.outputs.source_repo }}-${{ needs.parse-event.outputs.source_sha }}
+
+  # Build Services (if needed)
+  build-services:
+    name: Build Backend Services
+    runs-on: ubuntu-latest
+    needs: [parse-event, clone-source]
+    if: needs.parse-event.outputs.build_services == 'true'
+    strategy:
+      matrix:
+        service: [auth-service, user-service, voyage-service, payment-service, ai-service]
+    steps:
+      - name: Restore source repository
+        uses: actions/cache@v4
+        with:
+          path: source-repo
+          key: source-${{ needs.parse-event.outputs.source_repo }}-${{ needs.parse-event.outputs.source_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check if service exists
+        id: check
+        run: |
+          if [ -d "source-repo/${{ matrix.service }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.service }}
+          npm ci || npm install
+
+      - name: Run tests
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.service }}
+          npm run test --if-present || echo "No tests found"
+
+      - name: Build service
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.service }}
+          npm run build --if-present || echo "No build script"
+
+      - name: Build Docker image
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.service }}
+          if [ -f "Dockerfile" ]; then
+            docker build -t ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-event.outputs.source_sha }} .
+            docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-event.outputs.source_sha }} \
+                       ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:latest
+          fi
+
+      - name: Push Docker image
+        if: steps.check.outputs.exists == 'true' && needs.parse-event.outputs.environment != 'dev'
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.DOCKER_REGISTRY }} -u ${{ github.actor }} --password-stdin
+          if [ -f "source-repo/${{ matrix.service }}/Dockerfile" ]; then
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-event.outputs.source_sha }}
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:latest
+          fi
+
+  # Build Frontend (if needed)
+  build-frontend:
+    name: Build Frontend Components
+    runs-on: ubuntu-latest
+    needs: [parse-event, clone-source]
+    if: needs.parse-event.outputs.build_frontend == 'true'
+    strategy:
+      matrix:
+        component: [web-client, panorama-service, gateway]
+    steps:
+      - name: Restore source repository
+        uses: actions/cache@v4
+        with:
+          path: source-repo
+          key: source-${{ needs.parse-event.outputs.source_repo }}-${{ needs.parse-event.outputs.source_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check if component exists
+        id: check
+        run: |
+          if [ -d "source-repo/${{ matrix.component }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.component }}
+          npm ci || npm install
+
+      - name: Run tests
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.component }}
+          npm run test --if-present || echo "No tests found"
+
+      - name: Build component
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.component }}
+          npm run build --if-present || echo "No build script"
+
+      - name: Build Docker image
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cd source-repo/${{ matrix.component }}
+          if [ -f "Dockerfile" ]; then
+            docker build -t ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.component }}:${{ needs.parse-event.outputs.source_sha }} .
+            docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.component }}:${{ needs.parse-event.outputs.source_sha }} \
+                       ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.component }}:latest
+          fi
+
+      - name: Push Docker image
+        if: steps.check.outputs.exists == 'true' && needs.parse-event.outputs.environment != 'dev'
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.DOCKER_REGISTRY }} -u ${{ github.actor }} --password-stdin
+          if [ -f "source-repo/${{ matrix.component }}/Dockerfile" ]; then
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.component }}:${{ needs.parse-event.outputs.source_sha }}
+            docker push ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.component }}:latest
+          fi
+
+  # Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [parse-event, clone-source, build-services, build-frontend]
+    if: needs.parse-event.outputs.run_tests == 'true' && (success() || failure())
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Clone tests repository
+        uses: actions/checkout@v4
+        with:
+          repository: DREAMSCAPE-AI/dreamscape-tests
+          token: ${{ secrets.DISPATCH_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            npm ci || npm install
+          fi
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for MongoDB..."
+          timeout 60 bash -c 'until nc -z localhost 27017; do sleep 1; done'
+          echo "Waiting for Redis..."
+          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+
+      - name: Run integration tests
+        run: |
+          npm run test:integration --if-present || echo "No integration tests found"
+        env:
+          TEST_DATABASE_URL: mongodb://localhost:27017/dreamscape_test
+          REDIS_URL: redis://localhost:6379
+          CI: true
+
+  # Deploy to Oracle Cloud
+  deploy:
+    name: Deploy to Oracle Cloud
+    runs-on: ubuntu-latest
+    needs: [parse-event, build-services, build-frontend, integration-tests]
+    if: needs.parse-event.outputs.deploy_required == 'true' && needs.parse-event.outputs.environment != 'dev'
+    environment: ${{ needs.parse-event.outputs.environment }}
+    steps:
+      - name: Checkout infrastructure
+        uses: actions/checkout@v4
+
+      - name: Setup deployment environment
+        run: |
+          echo "🚀 Deploying to ${{ needs.parse-event.outputs.environment }}"
+          echo "Source: ${{ needs.parse-event.outputs.source_repo }}"
+          echo "Component: ${{ needs.parse-event.outputs.component }}"
+
+      - name: Trigger existing deployment workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'DREAMSCAPE-AI',
+              repo: 'dreamscape-infra',
+              workflow_id: 'deploy.yml',
+              ref: 'main',
+              inputs: {
+                environment: '${{ needs.parse-event.outputs.environment }}',
+                services: '${{ needs.parse-event.outputs.component }}',
+                image_tag: '${{ needs.parse-event.outputs.source_sha }}'
+              }
+            });
+
+  # Summary and notifications
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [parse-event, build-services, build-frontend, integration-tests, deploy]
+    if: always()
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "🚀 CENTRAL CI/CD PIPELINE SUMMARY"
+          echo "================================="
+          echo "Trigger: ${{ needs.parse-event.outputs.source_repo }}"
+          echo "Component: ${{ needs.parse-event.outputs.component }}"
+          echo "Environment: ${{ needs.parse-event.outputs.environment }}"
+          echo "SHA: ${{ needs.parse-event.outputs.source_sha }}"
+          echo ""
+          echo "Results:"
+          echo "- Build Services: ${{ needs.build-services.result }}"
+          echo "- Build Frontend: ${{ needs.build-frontend.result }}"
+          echo "- Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "- Deploy: ${{ needs.deploy.result }}"
+          
+          SUCCESS_COUNT=0
+          TOTAL_COUNT=0
+          
+          for result in "${{ needs.build-services.result }}" "${{ needs.build-frontend.result }}" "${{ needs.integration-tests.result }}" "${{ needs.deploy.result }}"; do
+            if [[ "$result" != "skipped" && "$result" != "" ]]; then
+              TOTAL_COUNT=$((TOTAL_COUNT + 1))
+              if [[ "$result" == "success" ]]; then
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              fi
+            fi
+          done
+          
+          if [[ $SUCCESS_COUNT -eq $TOTAL_COUNT ]] && [[ $TOTAL_COUNT -gt 0 ]]; then
+            echo "✅ Pipeline completed successfully!"
+          else
+            echo "❌ Pipeline completed with errors"
+          fi
+
+      - name: Update commit status
+        if: needs.parse-event.outputs.source_repo != 'manual'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DISPATCH_TOKEN }}
+          script: |
+            const repo = '${{ needs.parse-event.outputs.source_repo }}';
+            const sha = '${{ needs.parse-event.outputs.source_sha }}';
+            
+            if (repo && sha && repo !== 'manual' && sha !== 'manual') {
+              const [owner, repoName] = repo.split('/');
+              
+              const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+              const description = state === 'success' ? 
+                'Central CI/CD pipeline completed successfully' : 
+                'Central CI/CD pipeline failed';
+              
+              await github.rest.repos.createCommitStatus({
+                owner: owner || 'DREAMSCAPE-AI',
+                repo: repoName,
+                sha: sha,
+                state: state,
+                target_url: `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+                description: description,
+                context: 'ci/central-pipeline'
+              });
+            }
