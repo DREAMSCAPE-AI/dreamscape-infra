@@ -176,10 +176,11 @@ jobs:
           path: source-repo
           token: ${{ secrets.DISPATCH_TOKEN }}
 
-      - name: Clone infrastructure repository  
+      - name: Clone infrastructure repository
         uses: actions/checkout@v4
         with:
           repository: DREAMSCAPE-AI/dreamscape-infra
+          ref: ${{ needs.parse-event.outputs.environment == 'production' && 'main' || 'dev' }}
           path: infra-repo
 
       - name: Cache source repository
