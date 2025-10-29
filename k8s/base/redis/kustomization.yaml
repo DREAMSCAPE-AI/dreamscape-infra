@@ -10,7 +10,8 @@ resources:
 - configmap.yaml
 - networkpolicy.yaml
 
-commonLabels:
-  app: redis
-  component: cache
-  part-of: dreamscape
+labels:
+- pairs:
+    app: redis
+    component: cache
+    part-of: dreamscape
