@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # DreamScape Big Pods Development - Reset Script
 # DR-328: Clean reset of development environment

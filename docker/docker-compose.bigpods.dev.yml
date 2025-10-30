@@ -41,6 +41,9 @@ services:
       - NODE_ENV=development
       - HOT_RELOAD=true
       - LOG_LEVEL=debug
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=dreamscape_dev
@@ -98,6 +101,9 @@ services:
       - NODE_ENV=development
       - HOT_RELOAD=true
       - LOG_LEVEL=debug
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=dreamscape_dev
@@ -112,8 +118,8 @@ services:
       - STRIPE_SECRET_KEY=${STRIPE_TEST_KEY:-sk_test_xxx}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-test-key}
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=dreamscape-dev
-      - S3_SECRET_KEY=dreamscape-dev-secret
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
       - S3_BUCKET=dreamscape-vr-assets
     depends_on:
       postgres:
@@ -168,13 +174,16 @@ services:
     environment:
       - NODE_ENV=development
       - VITE_HMR=true
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
       - VITE_API_URL=http://localhost/api/v1
       - VITE_WS_URL=ws://localhost/ws
       - GATEWAY_PORT=4000
       - PANORAMA_PORT=3006
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=dreamscape-dev
-      - S3_SECRET_KEY=dreamscape-dev-secret
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
@@ -314,8 +323,8 @@ services:
           memory: 128M
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: dreamscape-dev
-      MINIO_ROOT_PASSWORD: dreamscape-dev-secret
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-dreamscape-dev}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-dreamscape-dev-secret}
     ports:
       - "9000:9000"     # S3 API
       - "9001:9001"     # Web Console
@@ -339,9 +348,12 @@ services:
         condition: service_healthy
     networks:
       - bigpods-network
+    environment:
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
     entrypoint: >
       /bin/sh -c "
-      mc alias set myminio http://minio:9000 dreamscape-dev dreamscape-dev-secret;
+      mc alias set myminio http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY};
       mc mb myminio/dreamscape-vr-assets --ignore-existing;
       mc mb myminio/dreamscape-user-uploads --ignore-existing;
       mc mb myminio/dreamscape-ai-generations --ignore-existing;

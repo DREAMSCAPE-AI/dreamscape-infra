@@ -43,24 +43,43 @@ COPY supervisord.conf /etc/supervisord.conf
 # Create startup script
 RUN cat > /start.sh <<'EOF'
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "🚀 Starting DreamScape Business Pod (Development)"
 
 # Install/update dependencies if package.json changed
 if [ -f /app/voyage/package.json ]; then
     echo "📦 Installing Voyage Service dependencies..."
-    cd /app/voyage && npm install --silent
+    cd /app/voyage && npm install --silent || {
+        echo "❌ Failed to install voyage dependencies"
+        exit 1
+    }
 fi
 
 if [ -f /app/ai/package.json ]; then
     echo "📦 Installing AI Service dependencies..."
-    cd /app/ai && npm install --silent
+    cd /app/ai && npm install --silent || {
+        echo "❌ Failed to install ai dependencies"
+        exit 1
+    }
 fi
 
 if [ -f /app/payment/package.json ]; then
     echo "📦 Installing Payment Service dependencies..."
-    cd /app/payment && npm install --silent
+    cd /app/payment && npm install --silent || {
+        echo "❌ Failed to install payment dependencies"
+        exit 1
+    }
+fi
+
+# Run database migrations
+echo "🔄 Running database migrations..."
+if [ -f /app/voyage/package.json ] && grep -q "migrate" /app/voyage/package.json 2>/dev/null; then
+    cd /app/voyage && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for voyage service"
+fi
+
+if [ -f /app/payment/package.json ] && grep -q "migrate" /app/payment/package.json 2>/dev/null; then
+    cd /app/payment && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for payment service"
 fi
 
 # Wait for dependencies

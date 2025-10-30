@@ -2,29 +2,87 @@
 
 Complete local development setup for DreamScape's hybrid architecture: **6 repositories → 3 Big Pods**
 
+> **⚠️ NOT FOR PRODUCTION USE**
+> This setup is **optimized for local development only**. For production deployment, use the K3s/Kubernetes configuration in `/k3s` directory with proper security, scaling, and monitoring.
+
 ## Architecture Overview
 
+```mermaid
+graph TB
+    subgraph "DreamScape Big Pods Architecture"
+        subgraph "Core Pod :80"
+            NGINX[NGINX Gateway<br/>:80/443]
+            AUTH[Auth Service<br/>:3001]
+            USER[User Service<br/>:3002]
+        end
+
+        subgraph "Business Pod"
+            VOYAGE[Voyage Service<br/>:3003]
+            AI[AI Service<br/>:3004]
+            PAYMENT[Payment Service<br/>:3005]
+        end
+
+        subgraph "Experience Pod :3000"
+            WEB[Web Client<br/>:5173 Vite]
+            PANORAMA[Panorama Service<br/>:3006]
+            GATEWAY[Gateway Service<br/>:4000]
+        end
+
+        subgraph "Infrastructure Services"
+            POSTGRES[(PostgreSQL<br/>:5432)]
+            REDIS[(Redis<br/>:6379)]
+            KAFKA[(Kafka<br/>:9092)]
+            MINIO[(MinIO S3<br/>:9000)]
+        end
+
+        NGINX --> AUTH
+        NGINX --> USER
+        NGINX --> VOYAGE
+        NGINX --> AI
+        NGINX --> PAYMENT
+
+        WEB --> NGINX
+        PANORAMA --> MINIO
+        GATEWAY --> KAFKA
+
+        AUTH --> POSTGRES
+        USER --> POSTGRES
+        VOYAGE --> POSTGRES
+        PAYMENT --> POSTGRES
+
+        AUTH --> REDIS
+        USER --> REDIS
+        GATEWAY --> REDIS
+
+        VOYAGE --> KAFKA
+        AI --> KAFKA
+        PAYMENT --> KAFKA
+    end
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    DreamScape Big Pods                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐         │
-│  │  Core Pod    │  │ Business Pod │  │ Experience Pod│         │
-│  ├──────────────┤  ├──────────────┤  ├───────────────┤         │
-│  │ NGINX        │  │ Voyage Svc   │  │ Web Client    │         │
-│  │ Auth Service │  │ AI Service   │  │ Panorama      │         │
-│  │ User Service │  │ Payment Svc  │  │ Gateway       │         │
-│  └──────┬───────┘  └──────┬───────┘  └───────┬───────┘         │
-│         │                  │                  │                  │
-│         └──────────────────┴──────────────────┘                  │
-│                            │                                      │
-│         ┌──────────────────┴──────────────────┐                 │
-│         │    Infrastructure Services          │                 │
-│         ├─────────────────────────────────────┤                 │
-│         │ PostgreSQL │ Redis │ Kafka │ MinIO │                 │
-│         └─────────────────────────────────────┘                 │
-└─────────────────────────────────────────────────────────────────┘
+
+### Request Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant NGINX
+    participant Auth
+    participant User
+    participant Voyage
+    participant DB as PostgreSQL
+    participant Cache as Redis
+
+    Client->>NGINX: GET /api/v1/voyages
+    NGINX->>Auth: Verify JWT Token
+    Auth->>Cache: Check token cache
+    Cache-->>Auth: Token valid
+    Auth-->>NGINX: 200 OK
+    NGINX->>Voyage: GET /voyages
+    Voyage->>DB: SELECT * FROM voyages
+    DB-->>Voyage: Voyage data
+    Voyage->>Cache: Cache result (5min)
+    Voyage-->>NGINX: 200 OK + data
+    NGINX-->>Client: 200 OK + data
 ```
 
 ### Big Pods Structure
@@ -45,14 +103,72 @@ Complete local development setup for DreamScape's hybrid architecture: **6 repos
   - Port 3006: Panorama Service
   - Port 4000: Gateway Service
 
+## Deployment Flow
+
+```mermaid
+flowchart TD
+    START([Start Development]) --> CHECK_PREREQ{Prerequisites<br/>Met?}
+    CHECK_PREREQ -->|No| INSTALL[Install Docker Desktop<br/>Clone repositories]
+    INSTALL --> CHECK_PREREQ
+    CHECK_PREREQ -->|Yes| GEN_SECRETS[Run generate-dev-secrets.sh]
+    GEN_SECRETS --> CONFIG_ENV[Configure .env.bigpods.local<br/>Add API keys]
+    CONFIG_ENV --> RUN_SCRIPT[./scripts/bigpods/dev-bigpods.sh]
+
+    RUN_SCRIPT --> BUILD_IMAGES[Build Docker images<br/>3 pods]
+    BUILD_IMAGES --> START_INFRA[Start Infrastructure<br/>PostgreSQL, Redis, Kafka, MinIO]
+    START_INFRA --> HEALTH_CHECK{Health Checks<br/>Pass?}
+
+    HEALTH_CHECK -->|No| VIEW_LOGS[Check logs<br/>docker compose logs]
+    VIEW_LOGS --> TROUBLESHOOT[Troubleshoot issues]
+    TROUBLESHOOT --> START_INFRA
+
+    HEALTH_CHECK -->|Yes| START_PODS[Start 3 Big Pods<br/>Core, Business, Experience]
+    START_PODS --> RUN_MIGRATIONS[Run DB migrations<br/>automatically]
+    RUN_MIGRATIONS --> READY([Ready for Development!])
+
+    READY --> DEV_WORK[Code changes<br/>Hot reload active]
+    DEV_WORK --> TEST[Test changes<br/>localhost:3000]
+    TEST --> DEV_WORK
+```
+
 ## Quick Start
 
 ### Prerequisites
 
-- Docker Desktop (20.10+) or Docker Engine + Docker Compose
-- 8GB+ RAM recommended (6GB minimum)
-- 20GB+ free disk space
-- Node.js 18+ (for local development outside containers)
+#### Required Software
+
+| Software | Minimum Version | Recommended Version | Notes |
+|----------|----------------|---------------------|-------|
+| **Docker Desktop** | 20.10.0 | 24.0.0+ | For Windows/macOS users |
+| **Docker Engine** | 20.10.0 | 24.0.0+ | For Linux users |
+| **Docker Compose** | v2.0.0 | v2.20.0+ | Bundled with Docker Desktop |
+| **Node.js** | 18.0.0 | 20.0.0+ | Optional, for local development |
+| **Git** | 2.30.0 | Latest | For repository management |
+
+#### System Requirements
+
+| Platform | RAM | Disk Space | Notes |
+|----------|-----|------------|-------|
+| **Windows** | 8GB+ (6GB min) | 20GB+ free | WSL2 required, enable virtualization in BIOS |
+| **macOS** | 8GB+ (6GB min) | 20GB+ free | Apple Silicon and Intel supported |
+| **Linux** | 6GB+ | 20GB+ free | Any modern distro (Ubuntu 20.04+, Debian 11+, etc.) |
+
+#### Platform-Specific Setup
+
+**Windows:**
+- Enable WSL2: `wsl --install`
+- Docker Desktop → Settings → Resources → WSL Integration: Enable for your distro
+- If using Git Bash, ensure line endings are set to LF: `git config --global core.autocrlf input`
+
+**macOS:**
+- Install via Homebrew: `brew install --cask docker`
+- Docker Desktop → Settings → Resources: Allocate 8GB+ memory
+- File sharing is automatic for `/Users` directory
+
+**Linux:**
+- Install Docker Engine: [Official Guide](https://docs.docker.com/engine/install/)
+- Add user to docker group: `sudo usermod -aG docker $USER` (logout/login required)
+- Install Docker Compose v2: `sudo apt install docker-compose-plugin` (Ubuntu/Debian)
 
 ### 1. Clone Required Repositories
 
@@ -138,6 +254,184 @@ Once started, access:
 | MinIO Console | http://localhost:9001 | 9001 | user: `dreamscape-dev`, password: `dreamscape-dev-secret` |
 
 ## Development Workflow
+
+### Common Workflows
+
+#### Workflow 1: Starting Your Development Day
+
+```bash
+# 1. Start all services
+./scripts/bigpods/dev-bigpods.sh
+
+# 2. Verify everything is running
+docker compose -f docker/docker-compose.bigpods.dev.yml ps
+
+# 3. Open your project and start coding
+# Changes are automatically reloaded!
+
+# 4. View logs in a separate terminal
+docker compose -f docker/docker-compose.bigpods.dev.yml logs -f core-pod
+```
+
+#### Workflow 2: Testing a New API Endpoint
+
+```bash
+# 1. Create new endpoint in your service (e.g., auth service)
+# File: dreamscape-services/auth/src/routes/users.ts
+
+# 2. Hot reload will automatically restart the service (watch logs)
+docker compose -f docker/docker-compose.bigpods.dev.yml logs -f core-pod
+
+# 3. Test the endpoint
+curl -X POST http://localhost:3001/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"Test123!"}'
+
+# 4. Check database to verify data
+docker exec -it dreamscape-postgres psql -U dev -d dreamscape_dev
+\dt  # List tables
+SELECT * FROM users;
+```
+
+#### Workflow 3: Debugging with VS Code
+
+```bash
+# 1. Make sure debug ports are exposed (already configured)
+
+# 2. Add VS Code launch configuration (.vscode/launch.json):
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Debug Auth Service",
+      "port": 9229,
+      "restart": true,
+      "sourceMaps": true,
+      "localRoot": "${workspaceFolder}/dreamscape-services/auth",
+      "remoteRoot": "/app/auth"
+    }
+  ]
+}
+
+# 3. Add breakpoints in your code
+# 4. Start debugging (F5) - debugger will attach to running container
+# 5. Make API request to hit breakpoint
+```
+
+#### Workflow 4: Working with Database Migrations
+
+```bash
+# 1. Create a new migration
+cd dreamscape-services/auth
+npm run migration:create add_user_preferences
+
+# 2. Edit the migration file
+# File: src/migrations/TIMESTAMP_add_user_preferences.ts
+
+# 3. Migration runs automatically on container restart
+docker compose -f docker/docker-compose.bigpods.dev.yml restart core-pod
+
+# 4. Verify migration ran
+docker exec -it dreamscape-postgres psql -U dev -d dreamscape_dev
+\d user_preferences  # Describe table
+
+# 5. If migration failed, check logs
+docker compose -f docker/docker-compose.bigpods.dev.yml logs core-pod | grep migration
+```
+
+#### Workflow 5: Testing Event-Driven Features (Kafka)
+
+```bash
+# 1. Produce a test event
+docker exec -it dreamscape-kafka kafka-console-producer \
+  --bootstrap-server localhost:9092 \
+  --topic user.created \
+  --property "parse.key=true" \
+  --property "key.separator=:"
+# Type: user123:{"userId":"user123","email":"test@example.com"}
+
+# 2. Watch consumer service logs
+docker compose -f docker/docker-compose.bigpods.dev.yml logs -f business-pod
+
+# 3. Verify event was processed
+# Check database, Redis cache, or application logs
+
+# 4. List all Kafka topics
+docker exec -it dreamscape-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --list
+
+# 5. Consume messages from a topic (debugging)
+docker exec -it dreamscape-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic user.created \
+  --from-beginning
+```
+
+#### Workflow 6: Testing S3 File Uploads (MinIO)
+
+```bash
+# 1. Access MinIO Console: http://localhost:9001
+# Login: dreamscape-dev / dreamscape-dev-secret
+
+# 2. Upload a test VR asset via API
+curl -X POST http://localhost:3006/api/v1/panorama/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "file=@/path/to/panorama.jpg"
+
+# 3. Verify upload in MinIO Console or CLI
+docker exec dreamscape-minio mc ls myminio/dreamscape-vr-assets/
+
+# 4. Test file access
+curl http://localhost:9000/dreamscape-vr-assets/OBJECT_KEY
+
+# 5. Clean up test files
+docker exec dreamscape-minio mc rm myminio/dreamscape-vr-assets/test-file.jpg
+```
+
+#### Workflow 7: Performance Testing
+
+```bash
+# 1. Install testing tool (if not already installed)
+# macOS/Linux: brew install wrk
+# Windows: https://github.com/wg/wrk
+
+# 2. Load test an endpoint
+wrk -t4 -c100 -d30s http://localhost:3001/api/v1/auth/health
+# 4 threads, 100 connections, 30 seconds
+
+# 3. Monitor resource usage
+docker stats
+
+# 4. Check NGINX rate limiting
+# Should see 429 responses if exceeding limits
+wrk -t4 -c100 -d10s http://localhost:3001/api/v1/auth/login
+
+# 5. Review logs for rate limit messages
+docker compose -f docker/docker-compose.bigpods.dev.yml logs core-pod | grep "limiting"
+```
+
+#### Workflow 8: Resetting Your Environment
+
+```bash
+# Soft reset (restart services, keep data)
+docker compose -f docker/docker-compose.bigpods.dev.yml restart
+
+# Hard reset (stop services, keep data)
+docker compose -f docker/docker-compose.bigpods.dev.yml down
+./scripts/bigpods/dev-bigpods.sh
+
+# Nuclear reset (destroy everything, fresh start)
+./scripts/bigpods/reset-bigpods.sh
+./scripts/bigpods/dev-bigpods.sh
+
+# Reset only database
+docker compose -f docker/docker-compose.bigpods.dev.yml stop postgres
+docker volume rm dreamscape-bigpods_postgres-data
+docker compose -f docker/docker-compose.bigpods.dev.yml up -d postgres
+```
 
 ### Hot Reload
 
