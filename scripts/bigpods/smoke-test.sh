@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # DreamScape Big Pods - Smoke Test Script
 # Validates that all services are running and healthy

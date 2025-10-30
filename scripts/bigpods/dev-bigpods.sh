@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # DreamScape Big Pods Development - Startup Script
 # DR-328: One-command setup for local development
