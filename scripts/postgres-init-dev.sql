@@ -179,35 +179,35 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Test Voyages
 INSERT INTO voyages (id, user_id, title, description, destination_id, departure_date, return_date, status, budget, traveler_count) VALUES
-    ('v1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'Paris Adventure', 'Romantic getaway to Paris', 'd1111111-1111-1111-1111-111111111111', '2025-06-15', '2025-06-22', 'planned', 2500.00, 2),
-    ('v2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'Tokyo Explorer', 'Exploring modern and traditional Tokyo', 'd2222222-2222-2222-2222-222222222222', '2025-09-01', '2025-09-10', 'draft', 3500.00, 1),
-    ('v3333333-3333-3333-3333-333333333333', '33333333-3333-3333-3333-333333333333', 'Barcelona Beach Week', 'Beach vacation in Barcelona', 'd4444444-4444-4444-4444-444444444444', '2025-07-20', '2025-07-27', 'planned', 1800.00, 2)
+    ('01111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'Paris Adventure', 'Romantic getaway to Paris', 'd1111111-1111-1111-1111-111111111111', '2025-06-15', '2025-06-22', 'planned', 2500.00, 2),
+    ('02222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'Tokyo Explorer', 'Exploring modern and traditional Tokyo', 'd2222222-2222-2222-2222-222222222222', '2025-09-01', '2025-09-10', 'draft', 3500.00, 1),
+    ('03333333-3333-3333-3333-333333333333', '33333333-3333-3333-3333-333333333333', 'Barcelona Beach Week', 'Beach vacation in Barcelona', 'd4444444-4444-4444-4444-444444444444', '2025-07-20', '2025-07-27', 'planned', 1800.00, 2)
 ON CONFLICT (id) DO NOTHING;
 
 -- Test Bookings
 INSERT INTO bookings (id, voyage_id, type, provider, confirmation_code, cost, status) VALUES
-    ('b1111111-1111-1111-1111-111111111111', 'v1111111-1111-1111-1111-111111111111', 'flight', 'Air France', 'AF12345', 600.00, 'confirmed'),
-    ('b2222222-2222-2222-2222-222222222222', 'v1111111-1111-1111-1111-111111111111', 'hotel', 'Hotel de Paris', 'HDR78901', 1200.00, 'confirmed'),
-    ('b3333333-3333-3333-3333-333333333333', 'v3333333-3333-3333-3333-333333333333', 'flight', 'Vueling', 'VY56789', 400.00, 'confirmed')
+    ('b1111111-1111-1111-1111-111111111111', '01111111-1111-1111-1111-111111111111', 'flight', 'Air France', 'AF12345', 600.00, 'confirmed'),
+    ('b2222222-2222-2222-2222-222222222222', '01111111-1111-1111-1111-111111111111', 'hotel', 'Hotel de Paris', 'HDR78901', 1200.00, 'confirmed'),
+    ('b3333333-3333-3333-3333-333333333333', '03333333-3333-3333-3333-333333333333', 'flight', 'Vueling', 'VY56789', 400.00, 'confirmed')
 ON CONFLICT (id) DO NOTHING;
 
 -- Test Panoramas
 INSERT INTO panoramas (id, user_id, destination_id, title, description, image_url, type, is_public, view_count) VALUES
-    ('p1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'd1111111-1111-1111-1111-111111111111', 'Eiffel Tower Sunset', 'Beautiful 360° view of Eiffel Tower at sunset', 'https://storage.dreamscape.ai/panoramas/eiffel-sunset-360.jpg', '360_photo', TRUE, 1250),
-    ('p2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'd2222222-2222-2222-2222-222222222222', 'Shibuya Crossing', 'Iconic Tokyo intersection in 360°', 'https://storage.dreamscape.ai/panoramas/shibuya-360.jpg', '360_photo', TRUE, 890),
-    ('p3333333-3333-3333-3333-333333333333', '33333333-3333-3333-3333-333333333333', 'd4444444-4444-4444-4444-444444444444', 'Sagrada Familia Interior', 'AI-enhanced interior panorama', 'https://storage.dreamscape.ai/panoramas/sagrada-interior-360.jpg', 'ai_generated', TRUE, 567)
+    ('e1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'd1111111-1111-1111-1111-111111111111', 'Eiffel Tower Sunset', 'Beautiful 360° view of Eiffel Tower at sunset', 'https://storage.dreamscape.ai/panoramas/eiffel-sunset-360.jpg', '360_photo', TRUE, 1250),
+    ('e2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'd2222222-2222-2222-2222-222222222222', 'Shibuya Crossing', 'Iconic Tokyo intersection in 360°', 'https://storage.dreamscape.ai/panoramas/shibuya-360.jpg', '360_photo', TRUE, 890),
+    ('e3333333-3333-3333-3333-333333333333', '33333333-3333-3333-3333-333333333333', 'd4444444-4444-4444-4444-444444444444', 'Sagrada Familia Interior', 'AI-enhanced interior panorama', 'https://storage.dreamscape.ai/panoramas/sagrada-interior-360.jpg', 'ai_generated', TRUE, 567)
 ON CONFLICT (id) DO NOTHING;
 
 -- Test AI Generations
 INSERT INTO ai_generations (id, user_id, voyage_id, type, prompt, status, model, tokens_used) VALUES
-    ('a1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'v1111111-1111-1111-1111-111111111111', 'itinerary', 'Create 7-day Paris itinerary for romance', 'completed', 'gpt-4', 1500),
-    ('a2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'v2222222-2222-2222-2222-222222222222', 'recommendation', 'Best sushi restaurants in Tokyo under $50', 'completed', 'gpt-4', 800)
+    ('a1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '01111111-1111-1111-1111-111111111111', 'itinerary', 'Create 7-day Paris itinerary for romance', 'completed', 'gpt-4', 1500),
+    ('a2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', '02222222-2222-2222-2222-222222222222', 'recommendation', 'Best sushi restaurants in Tokyo under $50', 'completed', 'gpt-4', 800)
 ON CONFLICT (id) DO NOTHING;
 
 -- Test Payments
 INSERT INTO payments (id, user_id, voyage_id, amount, payment_method, status, provider_payment_id) VALUES
-    ('pay11111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'v1111111-1111-1111-1111-111111111111', 1800.00, 'stripe', 'succeeded', 'pi_1234567890abcdef'),
-    ('pay22222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', 'v3333333-3333-3333-3333-333333333333', 400.00, 'card', 'succeeded', 'ch_9876543210fedcba')
+    ('f1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', '01111111-1111-1111-1111-111111111111', 1800.00, 'stripe', 'succeeded', 'pi_1234567890abcdef'),
+    ('f2222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', '03333333-3333-3333-3333-333333333333', 400.00, 'card', 'succeeded', 'ch_9876543210fedcba')
 ON CONFLICT (id) DO NOTHING;
 
 -- ===============================================

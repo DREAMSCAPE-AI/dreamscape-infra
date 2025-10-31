@@ -32,6 +32,9 @@ services:
       # Mount service code for hot reload
       - ../../dreamscape-services/auth:/app/auth:delegated
       - ../../dreamscape-services/user:/app/user:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/auth/node_modules
+      - /app/user/node_modules
       # Mount NGINX config
       - ./bigpods/core-pod/nginx.dev.conf:/etc/nginx/nginx.conf:ro
       # Logs
@@ -95,6 +98,10 @@ services:
       - ../../dreamscape-services/voyage:/app/voyage:delegated
       - ../../dreamscape-services/ai:/app/ai:delegated
       - ../../dreamscape-services/payment:/app/payment:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/voyage/node_modules
+      - /app/ai/node_modules
+      - /app/payment/node_modules
       # Logs
       - business-logs:/var/log/supervisor
     environment:
@@ -167,6 +174,10 @@ services:
       - ../../dreamscape-frontend/web-client:/app/web:delegated
       - ../../dreamscape-frontend/panorama:/app/panorama:delegated
       - ../../dreamscape-frontend/gateway:/app/gateway:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/web/node_modules
+      - /app/panorama/node_modules
+      - /app/gateway/node_modules
       # VR Assets
       - vr-assets:/app/assets/vr
       # Logs
@@ -289,7 +300,7 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       # Cluster
-      CLUSTER_ID: 'dreamscape-dev-cluster-001'
+      CLUSTER_ID: 'yn6kP4ohTr2ERKsuFCNSvg'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
