@@ -1,749 +1,250 @@
 #!/bin/bash
-# DreamScape Big Pods - Development Environment Script
-# Démarrage simplifié environnement Big Pods avec hot reload
+set -euo pipefail
 
-# Import common functions
+# DreamScape Big Pods Development - Startup Script
+# DR-328: One-command setup for local development
+# Architecture Hybride: 6-repos → 3-Big-Pods
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/common.sh"
+INFRA_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+COMPOSE_FILE="$INFRA_DIR/docker/docker-compose.bigpods.dev.yml"
+ENV_FILE="$INFRA_DIR/.env.bigpods.local"
+ENV_EXAMPLE="$INFRA_DIR/.env.bigpods.example"
 
-# Script-specific variables
-START_ALL=true
-HOT_RELOAD=true
-AUTO_RESTART=true
-SETUP_REPOS=false
-SKIP_HEALTH_CHECKS=false
-DEV_MODE="development"
-SELECTED_PODS=()
+echo -e "${BLUE}🚀 Starting DreamScape Big Pods Development Environment${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-# Development configuration
-DEV_PORTS_OFFSET=0
-DEV_LOG_LEVEL="debug"
-DEV_WATCH_ENABLED=true
+# ===============================================
+# Prerequisites Check
+# ===============================================
+echo -e "\n${YELLOW}📋 Checking prerequisites...${NC}"
 
-# Usage function
-show_usage() {
-    echo -e "${BLUE}${ROCKET_ICON} DreamScape Big Pods - Development Script${NC}"
-    echo ""
-    echo -e "${WHITE}USAGE:${NC}"
-    echo "  $0 [OPTIONS] [POD...]"
-    echo ""
-    echo -e "${WHITE}OPTIONS:${NC}"
-    echo "  -p, --pod POD          Start specific pod only"
-    echo "  --setup-repos          Clone/setup 6 repositories"
-    echo "  --no-hot-reload        Disable hot reload"
-    echo "  --no-auto-restart      Disable auto restart"
-    echo "  --skip-health          Skip health checks"
-    echo "  --production-mode      Use production-like settings"
-    echo "  --ports-offset N       Offset all ports by N"
-    echo "  --log-level LEVEL      Set log level (debug, info, warn, error)"
-    echo "  --no-watch             Disable file watching"
-    echo "  -d, --detach           Run in background (detached mode)"
-    echo "  --verbose              Verbose output"
-    echo "  --debug                Debug output"
-    echo "  -h, --help             Show this help"
-    echo ""
-    echo -e "${WHITE}PODS:${NC}"
-    echo "  core                   Core Pod (auth, user) + databases"
-    echo "  business               Business Pod (voyage, payment, ai)"
-    echo "  experience             Experience Pod (panorama, web-client, gateway)"
-    echo ""
-    echo -e "${WHITE}EXAMPLES:${NC}"
-    echo "  $0                     # Start all pods in development mode"
-    echo "  $0 --pod core          # Start Core Pod only"
-    echo "  $0 --setup-repos       # Setup repositories and start"
-    echo "  $0 --no-hot-reload     # Start without hot reload"
-    echo "  $0 core business       # Start specific pods"
-}
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}❌ Docker is not installed${NC}"
+    echo "Please install Docker: https://docs.docker.com/get-docker/"
+    exit 1
+fi
 
-# Parse command line arguments
-parse_args() {
-    local detach_mode=false
+if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    echo -e "${RED}❌ Docker Compose is not installed${NC}"
+    echo "Please install Docker Compose: https://docs.docker.com/compose/install/"
+    exit 1
+fi
 
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -p|--pod)
-                if validate_pod_name "$2"; then
-                    SELECTED_PODS+=("$2")
-                    START_ALL=false
-                fi
-                shift 2
-                ;;
-            --setup-repos)
-                SETUP_REPOS=true
-                shift
-                ;;
-            --no-hot-reload)
-                HOT_RELOAD=false
-                shift
-                ;;
-            --no-auto-restart)
-                AUTO_RESTART=false
-                shift
-                ;;
-            --skip-health)
-                SKIP_HEALTH_CHECKS=true
-                shift
-                ;;
-            --production-mode)
-                DEV_MODE="production"
-                HOT_RELOAD=false
-                DEV_LOG_LEVEL="info"
-                shift
-                ;;
-            --ports-offset)
-                DEV_PORTS_OFFSET="$2"
-                shift 2
-                ;;
-            --log-level)
-                DEV_LOG_LEVEL="$2"
-                shift 2
-                ;;
-            --no-watch)
-                DEV_WATCH_ENABLED=false
-                shift
-                ;;
-            -d|--detach)
-                detach_mode=true
-                shift
-                ;;
-            --verbose)
-                VERBOSE=true
-                shift
-                ;;
-            --debug)
-                DEBUG=true
-                VERBOSE=true
-                shift
-                ;;
-            -h|--help)
-                show_usage
-                exit 0
-                ;;
-            core|business|experience)
-                if validate_pod_name "$1"; then
-                    SELECTED_PODS+=("$1")
-                    START_ALL=false
-                fi
-                shift
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                show_usage
-                exit 1
-                ;;
-        esac
-    done
+# Detect docker compose command (v1 vs v2)
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
 
-    # Set pods to start
-    if [[ "$START_ALL" == "true" ]]; then
-        SELECTED_PODS=("core" "business" "experience")
-    fi
+echo -e "${GREEN}✓ Docker installed$(docker --version)${NC}"
+echo -e "${GREEN}✓ Docker Compose installed${NC}"
 
-    # Store detach mode
-    if [[ "$detach_mode" == "true" ]]; then
-        export DETACH_MODE=true
-    fi
+# Check if Docker daemon is running
+if ! docker info &> /dev/null; then
+    echo -e "${RED}❌ Docker daemon is not running${NC}"
+    echo "Please start Docker Desktop or the Docker daemon"
+    exit 1
+fi
 
-    log_debug "Pods to start: ${SELECTED_PODS[*]}"
-    log_debug "Development mode: $DEV_MODE"
-}
+echo -e "${GREEN}✓ Docker daemon running${NC}"
 
-# Check development prerequisites
-check_dev_prerequisites() {
-    log_info "Checking development prerequisites..."
+# ===============================================
+# Environment Setup
+# ===============================================
+echo -e "\n${YELLOW}⚙️  Setting up environment...${NC}"
 
-    # Check Node.js and npm
-    if ! command -v node >/dev/null 2>&1; then
-        log_error "Node.js not found. Please install Node.js 18+"
-        exit 1
-    fi
-
-    local node_version
-    node_version=$(node --version | sed 's/v//')
-    local major_version
-    major_version=$(echo "$node_version" | cut -d. -f1)
-
-    if [[ $major_version -lt 18 ]]; then
-        log_warning "Node.js version $node_version detected. Recommended: 18+"
+if [ ! -f "$ENV_FILE" ]; then
+    if [ -f "$ENV_EXAMPLE" ]; then
+        echo -e "${YELLOW}Creating .env.bigpods.local from example...${NC}"
+        cp "$ENV_EXAMPLE" "$ENV_FILE"
+        echo -e "${GREEN}✓ Environment file created${NC}"
     else
-        log_success "Node.js $node_version"
-    fi
+        echo -e "${YELLOW}⚠️  No .env.bigpods.example found, creating minimal config${NC}"
+        cat > "$ENV_FILE" <<EOF
+# DreamScape Big Pods Development Environment
 
-    # Check npm
-    if ! command -v npm >/dev/null 2>&1; then
-        log_error "npm not found"
-        exit 1
-    fi
+# API Keys (Test Mode)
+AMADEUS_TEST_KEY=your_amadeus_test_key
+AMADEUS_TEST_SECRET=your_amadeus_test_secret
+STRIPE_TEST_KEY=sk_test_your_stripe_test_key
+OPENAI_API_KEY=sk-your_openai_api_key
 
-    log_success "npm $(npm --version)"
+# Database
+DB_NAME=dreamscape_dev
+DB_USER=dev
+DB_PASSWORD=dev123
 
-    # Check Docker
-    check_docker
+# Redis
+REDIS_PASSWORD=
 
-    # Check Docker Compose
-    local compose_cmd
-    compose_cmd=$(check_docker_compose)
-    log_success "Docker Compose available: $compose_cmd"
+# JWT
+JWT_SECRET=dev-jwt-secret-change-in-production
 
-    # Check Git
-    if ! command -v git >/dev/null 2>&1; then
-        log_error "Git not found"
-        exit 1
-    fi
-
-    log_success "Git $(git --version | cut -d' ' -f3)"
-
-    # Check available ports
-    check_dev_ports
-}
-
-# Check development ports availability
-check_dev_ports() {
-    log_verbose "Checking development ports availability..."
-
-    local required_ports=(80 3000 3001 3002 3003 3004 3005 3006 5173 27017 6379)
-
-    for port in "${required_ports[@]}"; do
-        local adjusted_port=$((port + DEV_PORTS_OFFSET))
-
-        if ! check_port_available "$adjusted_port"; then
-            log_warning "Port $adjusted_port is already in use"
-
-            if [[ "$port" == "80" ]] && [[ "$adjusted_port" == "80" ]]; then
-                log_info "Port 80 conflict - will use alternative nginx port"
-            fi
-        fi
-    done
-}
-
-# Setup repositories
-setup_repositories() {
-    log_info "Setting up DreamScape repositories..."
-
-    local base_dir="$PROJECT_ROOT"
-    local repos=(
-        "dreamscape-services"
-        "dreamscape-frontend"
-        "dreamscape-tests"
-        "dreamscape-docs"
-        "dreamscape-infra"
-    )
-
-    for repo in "${repos[@]}"; do
-        local repo_path="$base_dir/$repo"
-
-        if [[ ! -d "$repo_path" ]]; then
-            log_info "Repository $repo not found locally"
-
-            if confirm_action "Clone $repo repository?"; then
-                log_info "Cloning $repo..."
-
-                git clone "https://github.com/dreamscape/$repo.git" "$repo_path"
-            fi
-        else
-            log_success "Repository $repo exists"
-
-            # Update repository
-            if confirm_action "Update $repo repository?"; then
-                log_info "Updating $repo..."
-                cd "$repo_path"
-                git pull origin main || log_warning "Failed to update $repo"
-                cd "$base_dir"
-            fi
-        fi
-
-        # Install dependencies if package.json exists
-        if [[ -f "$repo_path/package.json" ]]; then
-            log_info "Installing dependencies for $repo..."
-            cd "$repo_path"
-            npm install || log_warning "Failed to install dependencies for $repo"
-            cd "$base_dir"
-        fi
-    done
-}
-
-# Setup development environment variables
-setup_dev_environment() {
-    log_info "Setting up development environment..."
-
-    # Create development .env file
-    local env_file="$PROJECT_ROOT/.env.development"
-
-    if [[ ! -f "$env_file" ]]; then
-        log_info "Creating development environment file..."
-
-        cat > "$env_file" << EOF
-# DreamScape Development Environment
-NODE_ENV=$DEV_MODE
-LOG_LEVEL=$DEV_LOG_LEVEL
-
-# Database URLs
-DATABASE_URL=mongodb://admin:password123@localhost:27017/dreamscape?authSource=admin
-REDIS_URL=redis://localhost:6379
-POSTGRES_URL=postgresql://postgres:password123@localhost:5432/dreamscape
-
-# JWT Configuration
-JWT_SECRET=dev-secret-key-change-in-production
-JWT_EXPIRES_IN=24h
-
-# External APIs (development)
-AMADEUS_API_KEY=test_key
-AMADEUS_API_SECRET=test_secret
-STRIPE_SECRET_KEY=sk_test_
-STRIPE_PUBLISHABLE_KEY=pk_test_
-OPENAI_API_KEY=test_key
-
-# Development Settings
-HOT_RELOAD=$HOT_RELOAD
-AUTO_RESTART=$AUTO_RESTART
-WATCH_ENABLED=$DEV_WATCH_ENABLED
-
-# Port Configuration
-PORT_OFFSET=$DEV_PORTS_OFFSET
-NGINX_PORT=$((80 + DEV_PORTS_OFFSET))
-AUTH_PORT=$((3001 + DEV_PORTS_OFFSET))
-USER_PORT=$((3002 + DEV_PORTS_OFFSET))
-VOYAGE_PORT=$((3003 + DEV_PORTS_OFFSET))
-PAYMENT_PORT=$((3004 + DEV_PORTS_OFFSET))
-AI_PORT=$((3005 + DEV_PORTS_OFFSET))
-PANORAMA_PORT=$((3006 + DEV_PORTS_OFFSET))
-WEB_CLIENT_PORT=$((5173 + DEV_PORTS_OFFSET))
-GATEWAY_PORT=$((3000 + DEV_PORTS_OFFSET))
+# Environment
+NODE_ENV=development
+LOG_LEVEL=debug
 EOF
+        echo -e "${GREEN}✓ Minimal environment file created${NC}"
+    fi
+else
+    echo -e "${GREEN}✓ Environment file exists${NC}"
+fi
 
-        log_success "Development environment file created: $env_file"
+# Source environment
+set -a
+source "$ENV_FILE"
+set +a
+
+# ===============================================
+# Repository Structure Check
+# ===============================================
+echo -e "\n${YELLOW}📁 Checking repository structure...${NC}"
+
+REQUIRED_REPOS=(
+    "dreamscape-services"
+    "dreamscape-frontend"
+    "dreamscape-infra"
+)
+
+WORKSPACE_ROOT="$(cd "$INFRA_DIR/.." && pwd)"
+MISSING_REPOS=()
+
+for repo in "${REQUIRED_REPOS[@]}"; do
+    if [ -d "$WORKSPACE_ROOT/$repo" ]; then
+        echo -e "${GREEN}✓ $repo found${NC}"
     else
-        log_info "Development environment file exists: $env_file"
+        echo -e "${YELLOW}⚠️  $repo not found${NC}"
+        MISSING_REPOS+=("$repo")
     fi
+done
 
-    # Export environment variables
-    set -a
-    source "$env_file"
-    set +a
-}
-
-# Start databases
-start_databases() {
-    log_info "Starting development databases..."
-
-    local compose_cmd
-    compose_cmd=$(check_docker_compose)
-
-    cd docker
-
-    # Start MongoDB
-    log_info "Starting MongoDB..."
-    if $compose_cmd -f docker-compose.core-pod.yml up -d mongodb; then
-        wait_for_service "MongoDB" "mongodb://localhost:27017" 60
-    else
-        log_error "Failed to start MongoDB"
-        return 1
-    fi
-
-    # Start Redis
-    log_info "Starting Redis..."
-    if $compose_cmd -f docker-compose.core-pod.yml up -d redis; then
-        wait_for_service "Redis" "redis://localhost:6379" 30
-    else
-        log_error "Failed to start Redis"
-        return 1
-    fi
-
-    # Start PostgreSQL if needed for business pod
-    if [[ " ${SELECTED_PODS[*]} " =~ " business " ]]; then
-        log_info "Starting PostgreSQL for business pod..."
-        if $compose_cmd -f docker-compose.business-pod.yml up -d postgresql 2>/dev/null; then
-            wait_for_service "PostgreSQL" "postgresql://localhost:5432" 60
-        else
-            log_warning "PostgreSQL not configured or failed to start"
-        fi
-    fi
-
-    cd ..
-    log_success "Databases started"
-}
-
-# Start a development pod
-start_dev_pod() {
-    local pod_name="$1"
-
-    log_info "Starting $pod_name pod in development mode..."
-
-    case "$pod_name" in
-        "core")
-            start_core_pod_dev
-            ;;
-        "business")
-            start_business_pod_dev
-            ;;
-        "experience")
-            start_experience_pod_dev
-            ;;
-        *)
-            log_error "Unknown pod: $pod_name"
-            return 1
-            ;;
-    esac
-}
-
-# Start Core Pod in development mode
-start_core_pod_dev() {
-    log_info "Starting Core Pod development services..."
-
-    local services_dir="$PROJECT_ROOT/../dreamscape-services"
-
-    if [[ ! -d "$services_dir" ]]; then
-        log_error "dreamscape-services directory not found: $services_dir"
-        return 1
-    fi
-
-    # Start Auth Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting Auth Service with hot reload..."
-        cd "$services_dir/auth"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/auth.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/auth.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start User Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting User Service with hot reload..."
-        cd "$services_dir/user"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/user.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/user.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start NGINX for Core Pod
-    start_nginx_dev "core"
-
-    cd "$PROJECT_ROOT"
-}
-
-# Start Business Pod in development mode
-start_business_pod_dev() {
-    log_info "Starting Business Pod development services..."
-
-    local services_dir="$PROJECT_ROOT/../dreamscape-services"
-
-    # Start Voyage Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting Voyage Service with hot reload..."
-        cd "$services_dir/voyage"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/voyage.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/voyage.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start Payment Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting Payment Service with hot reload..."
-        cd "$services_dir/payment"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/payment.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/payment.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start AI Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting AI Service with hot reload..."
-        cd "$services_dir/ai"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/ai.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/ai.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    cd "$PROJECT_ROOT"
-}
-
-# Start Experience Pod in development mode
-start_experience_pod_dev() {
-    log_info "Starting Experience Pod development services..."
-
-    local services_dir="$PROJECT_ROOT/../dreamscape-services"
-    local frontend_dir="$PROJECT_ROOT/../dreamscape-frontend"
-
-    # Start Panorama Service
-    if [[ "$HOT_RELOAD" == "true" ]]; then
-        log_info "Starting Panorama Service with hot reload..."
-        cd "$services_dir/panorama"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/panorama.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/panorama.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start Web Client
-    if [[ -d "$frontend_dir/web-client" ]]; then
-        log_info "Starting Web Client with hot reload..."
-        cd "$frontend_dir/web-client"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/web-client.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/web-client.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    # Start Gateway
-    if [[ -d "$frontend_dir/gateway" ]]; then
-        log_info "Starting Gateway with hot reload..."
-        cd "$frontend_dir/gateway"
-
-        if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-            npm run dev > "$PROJECT_ROOT/logs/gateway.log" 2>&1 &
-            echo $! > "$PROJECT_ROOT/pids/gateway.pid"
-        else
-            npm run dev &
-        fi
-    fi
-
-    cd "$PROJECT_ROOT"
-}
-
-# Start NGINX for development
-start_nginx_dev() {
-    local pod_name="$1"
-
-    log_info "Starting NGINX for $pod_name pod..."
-
-    local compose_cmd
-    compose_cmd=$(check_docker_compose)
-
-    cd docker
-
-    # Use development Docker Compose override
-    local compose_files="-f docker-compose.${pod_name}-pod.yml"
-
-    if [[ -f "docker-compose.${pod_name}-pod.dev.yml" ]]; then
-        compose_files="$compose_files -f docker-compose.${pod_name}-pod.dev.yml"
-    fi
-
-    if $compose_cmd $compose_files up -d nginx 2>/dev/null; then
-        log_success "NGINX started for $pod_name pod"
-    else
-        log_warning "Failed to start NGINX for $pod_name pod"
-    fi
-
-    cd ..
-}
-
-# Health checks for development
-run_health_checks() {
-    if [[ "$SKIP_HEALTH_CHECKS" == "true" ]]; then
-        log_info "Skipping health checks"
-        return 0
-    fi
-
-    log_info "Running development health checks..."
-
-    local health_urls=()
-
-    for pod_name in "${SELECTED_PODS[@]}"; do
-        case "$pod_name" in
-            "core")
-                health_urls+=("http://localhost:$((3001 + DEV_PORTS_OFFSET))/health")  # Auth
-                health_urls+=("http://localhost:$((3002 + DEV_PORTS_OFFSET))/health")  # User
-                ;;
-            "business")
-                health_urls+=("http://localhost:$((3003 + DEV_PORTS_OFFSET))/health")  # Voyage
-                health_urls+=("http://localhost:$((3004 + DEV_PORTS_OFFSET))/health")  # Payment
-                health_urls+=("http://localhost:$((3005 + DEV_PORTS_OFFSET))/health")  # AI
-                ;;
-            "experience")
-                health_urls+=("http://localhost:$((3006 + DEV_PORTS_OFFSET))/health")  # Panorama
-                health_urls+=("http://localhost:$((5173 + DEV_PORTS_OFFSET))")         # Web Client
-                health_urls+=("http://localhost:$((3000 + DEV_PORTS_OFFSET))/health")  # Gateway
-                ;;
-        esac
+if [ ${#MISSING_REPOS[@]} -ne 0 ]; then
+    echo -e "\n${YELLOW}⚠️  Some repositories are missing:${NC}"
+    for repo in "${MISSING_REPOS[@]}"; do
+        echo -e "   - $repo"
     done
+    echo -e "\n${YELLOW}Continuing anyway - services will use placeholder code${NC}"
+    read -p "Press Enter to continue or Ctrl+C to abort..."
+fi
 
-    local healthy_services=0
-    local total_services=${#health_urls[@]}
+# ===============================================
+# Docker Compose Setup
+# ===============================================
+echo -e "\n${YELLOW}🐳 Starting Docker Compose Big Pods...${NC}"
 
-    for url in "${health_urls[@]}"; do
-        if check_service_health "$url" 5 3; then
-            healthy_services=$((healthy_services + 1))
+cd "$INFRA_DIR/docker"
+
+# Check if services are already running
+if $DOCKER_COMPOSE -f docker-compose.bigpods.dev.yml ps | grep -q "Up"; then
+    echo -e "${YELLOW}Some services are already running${NC}"
+    read -p "Restart all services? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Stopping existing services...${NC}"
+        $DOCKER_COMPOSE -f docker-compose.bigpods.dev.yml down
+    fi
+fi
+
+# Build and start services
+echo -e "${BLUE}Building and starting Big Pods...${NC}"
+$DOCKER_COMPOSE -f docker-compose.bigpods.dev.yml up --build -d
+
+# ===============================================
+# Wait for Services
+# ===============================================
+echo -e "\n${YELLOW}⏳ Waiting for services to be ready...${NC}"
+echo -e "${BLUE}This may take 2-3 minutes for first-time setup${NC}"
+
+# Function to check service health
+check_service() {
+    local service=$1
+    local url=$2
+    local max_attempts=30
+    local attempt=0
+
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -f -s "$url" > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ $service is ready${NC}"
+            return 0
         fi
+        attempt=$((attempt + 1))
+        echo -n "."
+        sleep 2
     done
-
-    log_info "Health check results: $healthy_services/$total_services services healthy"
-
-    if [[ $healthy_services -eq $total_services ]]; then
-        log_success "All services are healthy!"
-    else
-        log_warning "Some services may still be starting up"
-    fi
+    echo -e "${RED}✗ $service failed to start${NC}"
+    return 1
 }
 
-# Show development information
-show_dev_info() {
-    echo ""
-    log_info "Development Environment Ready!"
-    echo ""
+# Initial wait for containers to start
+sleep 10
 
-    log_info "Service URLs:"
-    for pod_name in "${SELECTED_PODS[@]}"; do
-        case "$pod_name" in
-            "core")
-                echo -e "  ${SUCCESS_ICON} Auth Service: http://localhost:$((3001 + DEV_PORTS_OFFSET))"
-                echo -e "  ${SUCCESS_ICON} User Service: http://localhost:$((3002 + DEV_PORTS_OFFSET))"
-                ;;
-            "business")
-                echo -e "  ${SUCCESS_ICON} Voyage Service: http://localhost:$((3003 + DEV_PORTS_OFFSET))"
-                echo -e "  ${SUCCESS_ICON} Payment Service: http://localhost:$((3004 + DEV_PORTS_OFFSET))"
-                echo -e "  ${SUCCESS_ICON} AI Service: http://localhost:$((3005 + DEV_PORTS_OFFSET))"
-                ;;
-            "experience")
-                echo -e "  ${SUCCESS_ICON} Panorama Service: http://localhost:$((3006 + DEV_PORTS_OFFSET))"
-                echo -e "  ${SUCCESS_ICON} Web Client: http://localhost:$((5173 + DEV_PORTS_OFFSET))"
-                echo -e "  ${SUCCESS_ICON} Gateway: http://localhost:$((3000 + DEV_PORTS_OFFSET))"
-                ;;
-        esac
-    done
+# Check infrastructure services
+echo -n "Checking PostgreSQL... "
+check_service "PostgreSQL" "http://localhost:5432" || true
 
-    echo ""
-    log_info "Development Features:"
-    echo -e "  • Hot Reload: $([ "$HOT_RELOAD" == "true" ] && echo "${SUCCESS_ICON} Enabled" || echo "${WARNING_ICON} Disabled")"
-    echo -e "  • Auto Restart: $([ "$AUTO_RESTART" == "true" ] && echo "${SUCCESS_ICON} Enabled" || echo "${WARNING_ICON} Disabled")"
-    echo -e "  • File Watching: $([ "$DEV_WATCH_ENABLED" == "true" ] && echo "${SUCCESS_ICON} Enabled" || echo "${WARNING_ICON} Disabled")"
-    echo -e "  • Log Level: $DEV_LOG_LEVEL"
+echo -n "Checking Redis... "
+check_service "Redis" "http://localhost:6379" || true
 
-    echo ""
-    log_info "Logs Location: $PROJECT_ROOT/logs/"
-    log_info "PIDs Location: $PROJECT_ROOT/pids/"
+echo -n "Checking MinIO... "
+check_service "MinIO" "http://localhost:9000/minio/health/live" || true
 
-    if [[ "${DETACH_MODE:-false}" == "false" ]]; then
-        echo ""
-        log_info "Press Ctrl+C to stop all services"
-    fi
-}
+# Additional wait for application pods
+sleep 20
 
-# Setup log and pid directories
-setup_runtime_dirs() {
-    ensure_directory "$PROJECT_ROOT/logs"
-    ensure_directory "$PROJECT_ROOT/pids"
-}
+# Check Big Pods
+echo -n "Checking Core Pod... "
+check_service "Core Pod" "http://localhost/health" || true
 
-# Cleanup function
-cleanup_dev() {
-    log_info "Stopping development environment..."
+echo -n "Checking Business Pod... "
+check_service "Business Pod" "http://localhost:3003/health" || true
 
-    # Kill background processes if in detached mode
-    if [[ "${DETACH_MODE:-false}" == "true" ]]; then
-        local pid_files=("$PROJECT_ROOT/pids"/*.pid)
+echo -n "Checking Experience Pod... "
+check_service "Experience Pod" "http://localhost:3000/health" || true
 
-        for pid_file in "${pid_files[@]}"; do
-            if [[ -f "$pid_file" ]]; then
-                local pid
-                pid=$(cat "$pid_file")
-                if kill -0 "$pid" 2>/dev/null; then
-                    log_debug "Killing process $pid"
-                    kill "$pid" 2>/dev/null || true
-                fi
-                rm -f "$pid_file"
-            fi
-        done
-    fi
+# ===============================================
+# Service Status Summary
+# ===============================================
+echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}✅ DreamScape Big Pods Development Environment Ready!${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    # Stop Docker services
-    local compose_cmd
-    compose_cmd=$(check_docker_compose)
+echo -e "\n${YELLOW}🌐 Service URLs:${NC}"
+echo -e "  ${GREEN}Web Application:${NC}      http://localhost:3000"
+echo -e "  ${GREEN}API Gateway (Core):${NC}   http://localhost/api/v1"
+echo -e "  ${GREEN}Business Services:${NC}    http://localhost:3003"
+echo -e "  ${GREEN}Panorama VR:${NC}          http://localhost:3006"
 
-    cd docker
-    $compose_cmd -f docker-compose.core-pod.yml down >/dev/null 2>&1 || true
+echo -e "\n${YELLOW}🔧 Infrastructure:${NC}"
+echo -e "  ${GREEN}PostgreSQL:${NC}           localhost:5432 (user: dev, password: dev123)"
+echo -e "  ${GREEN}Redis:${NC}                localhost:6379"
+echo -e "  ${GREEN}Kafka:${NC}                localhost:9092"
+echo -e "  ${GREEN}MinIO Console:${NC}        http://localhost:9001 (user: dreamscape-dev)"
 
-    if [[ -f docker-compose.business-pod.yml ]]; then
-        $compose_cmd -f docker-compose.business-pod.yml down >/dev/null 2>&1 || true
-    fi
+echo -e "\n${YELLOW}📊 Monitoring:${NC}"
+echo -e "  ${GREEN}View Logs:${NC}            ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml logs -f"
+echo -e "  ${GREEN}Core Pod Logs:${NC}        ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml logs -f core-pod"
+echo -e "  ${GREEN}Business Pod Logs:${NC}    ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml logs -f business-pod"
+echo -e "  ${GREEN}Experience Pod Logs:${NC}  ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml logs -f experience-pod"
 
-    if [[ -f docker-compose.experience-pod.yml ]]; then
-        $compose_cmd -f docker-compose.experience-pod.yml down >/dev/null 2>&1 || true
-    fi
+echo -e "\n${YELLOW}🛠️  Development Commands:${NC}"
+echo -e "  ${GREEN}Stop Services:${NC}        ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml down"
+echo -e "  ${GREEN}Restart:${NC}              ${DOCKER_COMPOSE} -f docker-compose.bigpods.dev.yml restart"
+echo -e "  ${GREEN}Reset Database:${NC}       $SCRIPT_DIR/reset-bigpods.sh"
 
-    cd ..
+echo -e "\n${YELLOW}📖 Test Accounts:${NC}"
+echo -e "  ${GREEN}Admin:${NC}                dev@dreamscape.ai / password123"
+echo -e "  ${GREEN}User:${NC}                 john@example.com / password123"
 
-    log_success "Development environment stopped"
-}
-
-# Main function
-main() {
-    # Initialize
-    init_common
-
-    echo -e "${BLUE}${ROCKET_ICON} DreamScape Big Pods - Development Environment${NC}"
-    echo -e "${BLUE}Hot reload development for 6 repositories → 3 Big Pods${NC}"
-    echo ""
-
-    # Parse arguments
-    parse_args "$@"
-
-    # Setup runtime directories
-    setup_runtime_dirs
-
-    # Check prerequisites
-    check_dev_prerequisites
-
-    # Setup repositories if requested
-    if [[ "$SETUP_REPOS" == "true" ]]; then
-        setup_repositories
-    fi
-
-    # Setup development environment
-    setup_dev_environment
-
-    # Start databases
-    start_databases
-
-    # Start selected pods
-    for pod_name in "${SELECTED_PODS[@]}"; do
-        start_dev_pod "$pod_name"
-        sleep 5  # Allow services to start
-    done
-
-    # Wait for services to be ready
-    log_info "Waiting for services to be ready..."
-    sleep 10
-
-    # Run health checks
-    run_health_checks
-
-    # Show development information
-    show_dev_info
-
-    # Wait for interrupt if not in detached mode
-    if [[ "${DETACH_MODE:-false}" == "false" ]]; then
-        wait
-    fi
-}
-
-# Set cleanup trap
-trap cleanup_dev EXIT
-
-# Execute main function
-main "$@"
+echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}Happy coding! 🎉${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"

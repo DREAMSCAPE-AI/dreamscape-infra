@@ -1,0 +1,111 @@
+# DreamScape Experience Pod - Development Build
+# Web Client + Panorama Service + Gateway Service
+# Architecture Hybride: 6-repos → 3-Big-Pods
+# DR-328: Hot reload enabled with Vite HMR for local development
+
+FROM node:20-alpine
+
+# Install system dependencies including VR processing tools
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    curl \
+    bash \
+    git \
+    python3 \
+    make \
+    g++ \
+    imagemagick \
+    ffmpeg \
+    libwebp-tools
+
+# Create application directories
+RUN mkdir -p /app/web /app/panorama /app/gateway /var/log/supervisor /var/log/nginx /usr/share/nginx/html
+
+# Set working directory
+WORKDIR /app
+
+# Install development tools globally
+RUN npm install -g nodemon typescript ts-node vite
+
+# Copy package files for all services (will be overridden by volume mounts)
+# These are just placeholders for initial build
+RUN echo '{"name":"web-client","version":"1.0.0","scripts":{"dev":"vite --host 0.0.0.0 --port 5173"},"dependencies":{"vite":"^5.0.0"}}' > /app/web/package.json
+RUN echo '{"name":"panorama-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/panorama/package.json
+RUN echo '{"name":"gateway-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/gateway/package.json
+
+# Install dependencies (will be overridden, but needed for build)
+RUN cd /app/web && npm install --silent || true
+RUN cd /app/panorama && npm install --silent || true
+RUN cd /app/gateway && npm install --silent || true
+
+# Copy NGINX configuration for development (proxies to Vite dev server)
+COPY nginx.dev.conf /etc/nginx/nginx.conf
+
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisord.conf
+
+# Create startup script
+RUN cat > /start.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+echo "🚀 Starting DreamScape Experience Pod (Development)"
+
+# Install/update dependencies if package.json changed
+if [ -f /app/web/package.json ]; then
+    echo "📦 Installing Web Client dependencies..."
+    cd /app/web && npm install --silent || {
+        echo "❌ Failed to install web client dependencies"
+        exit 1
+    }
+fi
+
+if [ -f /app/panorama/package.json ]; then
+    echo "📦 Installing Panorama Service dependencies..."
+    cd /app/panorama && npm install --silent || {
+        echo "❌ Failed to install panorama dependencies"
+        exit 1
+    }
+fi
+
+if [ -f /app/gateway/package.json ]; then
+    echo "📦 Installing Gateway Service dependencies..."
+    cd /app/gateway && npm install --silent || {
+        echo "❌ Failed to install gateway dependencies"
+        exit 1
+    }
+fi
+
+# Run database migrations
+echo "🔄 Running database migrations..."
+if [ -f /app/panorama/package.json ] && grep -q "migrate" /app/panorama/package.json 2>/dev/null; then
+    cd /app/panorama && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for panorama service"
+fi
+
+if [ -f /app/gateway/package.json ] && grep -q "migrate" /app/gateway/package.json 2>/dev/null; then
+    cd /app/gateway && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for gateway service"
+fi
+
+# Wait for dependencies
+echo "⏳ Waiting for infrastructure services..."
+timeout 60 bash -c 'until curl -f http://minio:9000/minio/health/live 2>/dev/null; do sleep 2; done' || true
+
+# Start supervisor (manages NGINX + Vite + Panorama + Gateway)
+echo "✅ Starting services with Supervisor..."
+exec /usr/bin/supervisord -c /etc/supervisord.conf
+EOF
+
+RUN chmod +x /start.sh
+
+# Expose ports
+EXPOSE 80 5173 3006 4000 9234 9235
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Start services
+RUN chmod +x /start.sh
+RUN dos2unix /start.sh 2>/dev/null || sed -i 's/\r$//' /start.sh
+CMD ["/start.sh"]

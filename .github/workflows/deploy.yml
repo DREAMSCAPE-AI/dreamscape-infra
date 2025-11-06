@@ -1,227 +1,218 @@
-name: CD Pipeline - Deploy to Oracle Cloud
+name: Simple Deploy Pipeline
+
 on:
   push:
     branches: [main]
-  repository_dispatch:
-    types: [deploy-images]
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment à déployer'
+        description: "Environment"
         required: true
-        default: 'staging'
+        default: "staging"
         type: choice
         options:
           - dev
           - staging
           - production
-      services:
-        description: 'Services à déployer'
-        required: false
-        default: 'all'
+      service:
+        description: "Service"
+        required: true
+        default: "frontend"
         type: choice
         options:
-          - all
           - frontend
           - backend
+          - both
       image_tag:
-        description: 'Tag des images Docker'
+        description: "Image tag"
         required: false
-        default: 'latest'
+        default: "latest"
         type: string
 
-env:
-  DOCKER_IMAGE_FRONT: dreamscape/frontend
-  DOCKER_IMAGE_BACK: dreamscape/backend
-
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.setup.outputs.environment }}
-      services: ${{ steps.setup.outputs.services }}
-      image_tag: ${{ steps.setup.outputs.image_tag }}
-      deploy_frontend: ${{ steps.setup.outputs.deploy_frontend }}
-      deploy_backend: ${{ steps.setup.outputs.deploy_backend }}
-    steps:
-      - name: Setup deployment parameters
-        id: setup
-        run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            ENVIRONMENT="staging"
-          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            ENVIRONMENT="staging"
-          else
-            ENVIRONMENT="${{ github.event.inputs.environment }}"
-          fi
-          
-          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            SERVICES="${{ github.event.client_payload.services || 'all' }}"
-          else
-            SERVICES="${{ github.event.inputs.services || 'all' }}"
-          fi
-          
-          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            IMAGE_TAG="${{ github.event.client_payload.commit_sha || 'latest' }}"
-          else
-            IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
-          fi
-          
-          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
-          echo "services=${SERVICES}" >> $GITHUB_OUTPUT
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          
-          if [[ "${SERVICES}" == "all" ]]; then
-            echo "deploy_frontend=true" >> $GITHUB_OUTPUT
-            echo "deploy_backend=true" >> $GITHUB_OUTPUT
-          elif [[ "${SERVICES}" == "frontend" ]]; then
-            echo "deploy_frontend=true" >> $GITHUB_OUTPUT
-            echo "deploy_backend=false" >> $GITHUB_OUTPUT
-          elif [[ "${SERVICES}" == "backend" ]]; then
-            echo "deploy_frontend=false" >> $GITHUB_OUTPUT
-            echo "deploy_backend=true" >> $GITHUB_OUTPUT
-          fi
-
   deploy:
-    needs: [prepare]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup SSH
-        env:
-          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
-          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
-          VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
-          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
-          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
-          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set environment variables
         run: |
-          mkdir -p ~/.ssh
+          # Déterminer l'environnement
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ENV="staging"
+          else
+            ENV="${{ github.event.inputs.environment }}"
+          fi
           
-          ENV="${{ needs.prepare.outputs.environment }}"
-          echo "Environment: $ENV"
+          # Déterminer le service
+          if [ "${{ github.event_name }}" = "push" ]; then
+            SERVICE="both"
+          else
+            SERVICE="${{ github.event.inputs.service }}"
+          fi
           
-          case "$ENV" in
+          # Déterminer le tag
+          IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
+          
+          echo "ENVIRONMENT=${ENV}" >> $GITHUB_ENV
+          echo "SERVICE=${SERVICE}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          
+          # Déterminer l'host et la clé selon l'environnement
+          case "${ENV}" in
             "production")
-              VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
+              echo "VM_HOST=${{ secrets.VM_HOST_PRODUCTION }}" >> $GITHUB_ENV
+              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_PRODUCTION" >> $GITHUB_ENV
               ;;
             "staging")
-              VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
+              echo "VM_HOST=${{ secrets.VM_HOST_STAGING }}" >> $GITHUB_ENV
+              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_STAGING" >> $GITHUB_ENV
               ;;
-            "dev"|*)
-              VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
+            "dev")
+              echo "VM_HOST=${{ secrets.VM_HOST_DEV }}" >> $GITHUB_ENV
+              echo "SSH_KEY_SECRET=SSH_PRIVATE_KEY_DEV" >> $GITHUB_ENV
               ;;
           esac
           
-          if [ -z "$VM_HOST" ]; then
-            echo "Error: VM host is empty for environment $ENV"
-            exit 1
-          fi
-          
-          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
-          echo "Using VM host: $VM_HOST"
-          
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+          echo "✅ Configuration:"
+          echo "  Environment: ${ENV}"
+          echo "  Service: ${SERVICE}" 
+          echo "  Image Tag: ${IMAGE_TAG}"
 
-      - name: Test SSH connection
+      - name: Setup SSH
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@$VM_HOST "echo '✅ SSH connection successful on $VM_HOST'"
-
-      - name: Make scripts executable
-        run: |
-          chmod +x scripts/deploy-frontend.sh
-          chmod +x scripts/deploy-backend.sh
-          chmod +x scripts/rollback.sh
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # Créer la clé SSH selon l'environnement
+          case "$ENVIRONMENT" in
+            "production")
+              echo "${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}" > ssh_key
+              ;;
+            "staging") 
+              echo "${{ secrets.SSH_PRIVATE_KEY_STAGING }}" > ssh_key
+              ;;
+            "dev")
+              echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ssh_key
+              ;;
+          esac
+          
+          chmod 600 ssh_key
+          
+          # Ajouter l'host aux known_hosts
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          
+          echo "✅ SSH configuré pour $VM_HOST"
 
       - name: Deploy Frontend
-        if: needs.prepare.outputs.deploy_frontend == 'true'
+        if: env.SERVICE == 'frontend' || env.SERVICE == 'both'
         run: |
-          ./scripts/deploy-frontend.sh \
-            "${{ needs.prepare.outputs.environment }}" \
-            "${{ needs.prepare.outputs.image_tag }}" \
-            "$VM_HOST"
+          echo "🚀 Déploiement Frontend sur $ENVIRONMENT"
+          
+          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+            # Arrêter le conteneur existant
+            docker stop dreamscape-frontend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+            docker rm dreamscape-frontend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+            
+            # Tirer la nouvelle image
+            docker pull dreamscape/frontend:${{ env.IMAGE_TAG }}
+            
+            # Démarrer le nouveau conteneur
+            docker run -d \
+              --name dreamscape-frontend-${{ env.ENVIRONMENT }} \
+              --restart unless-stopped \
+              -p 80:80 \
+              -e NODE_ENV=${{ env.ENVIRONMENT }} \
+              dreamscape/frontend:${{ env.IMAGE_TAG }}
+            
+            # Vérifier que le conteneur tourne
+            sleep 10
+            if docker ps | grep dreamscape-frontend-${{ env.ENVIRONMENT }}; then
+              echo "✅ Frontend déployé avec succès"
+            else
+              echo "❌ Échec du déploiement frontend"
+              exit 1
+            fi
+          EOF
 
       - name: Deploy Backend
-        if: needs.prepare.outputs.deploy_backend == 'true'
+        if: env.SERVICE == 'backend' || env.SERVICE == 'both'
         run: |
-          ./scripts/deploy-backend.sh \
-            "${{ needs.prepare.outputs.environment }}" \
-            "${{ needs.prepare.outputs.image_tag }}" \
-            "$VM_HOST"
+          echo "🚀 Déploiement Backend sur $ENVIRONMENT"
+          
+          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+            # Arrêter le conteneur existant
+            docker stop dreamscape-backend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+            docker rm dreamscape-backend-${{ env.ENVIRONMENT }} 2>/dev/null || true
+            
+            # Tirer la nouvelle image
+            docker pull dreamscape/backend:${{ env.IMAGE_TAG }}
+            
+            # Démarrer le nouveau conteneur
+            docker run -d \
+              --name dreamscape-backend-${{ env.ENVIRONMENT }} \
+              --restart unless-stopped \
+              -p 8080:8080 \
+              -e NODE_ENV=${{ env.ENVIRONMENT }} \
+              dreamscape/backend:${{ env.IMAGE_TAG }}
+            
+            # Vérifier que le conteneur tourne
+            sleep 10
+            if docker ps | grep dreamscape-backend-${{ env.ENVIRONMENT }}; then
+              echo "✅ Backend déployé avec succès"
+            else
+              echo "❌ Échec du déploiement backend"
+              exit 1
+            fi
+          EOF
+
+      - name: Health Check
+        run: |
+          echo "🔍 Vérification de santé..."
+          
+          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+            ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+              for i in {1..5}; do
+                if curl -f -s http://localhost/ > /dev/null; then
+                  echo "✅ Frontend OK"
+                  break
+                else
+                  echo "⏳ Tentative $i/5 pour frontend..."
+                  sleep 5
+                fi
+              done
+          EOF
+          fi
+          
+          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+            ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@$VM_HOST << 'EOF'
+              for i in {1..5}; do
+                if curl -f -s http://localhost:8080/health > /dev/null 2>&1; then
+                  echo "✅ Backend OK"
+                  break
+                else
+                  echo "⏳ Tentative $i/5 pour backend..."
+                  sleep 5
+                fi
+              done
+          EOF
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ssh_key
+          echo "✅ Nettoyage terminé"
 
   rollback:
-    needs: [prepare, deploy]
     if: failure()
+    needs: [deploy]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup SSH for rollback
-        env:
-          VM_HOST_PRODUCTION: ${{ secrets.VM_HOST_PRODUCTION }}
-          VM_HOST_STAGING: ${{ secrets.VM_HOST_STAGING }}
-          VM_HOST_DEV: ${{ secrets.VM_HOST_DEV }}
-          SSH_KEY_PRODUCTION: ${{ secrets.SSH_PRIVATE_KEY_PRODUCTION }}
-          SSH_KEY_STAGING: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
-          SSH_KEY_DEV: ${{ secrets.SSH_PRIVATE_KEY_DEV }}
+      - name: Rollback (manual for now)
         run: |
-          mkdir -p ~/.ssh
-          
-          ENV="${{ needs.prepare.outputs.environment }}"
-          
-          case "$ENV" in
-            "production")
-              VM_HOST="$VM_HOST_PRODUCTION"
-              echo "$SSH_KEY_PRODUCTION" | tr -d '\r' > ~/.ssh/id_rsa
-              ;;
-            "staging")
-              VM_HOST="$VM_HOST_STAGING"
-              echo "$SSH_KEY_STAGING" | tr -d '\r' > ~/.ssh/id_rsa
-              ;;
-            "dev"|*)
-              VM_HOST="$VM_HOST_DEV"
-              echo "$SSH_KEY_DEV" | tr -d '\r' > ~/.ssh/id_rsa
-              ;;
-          esac
-          
-          echo "VM_HOST=$VM_HOST" >> $GITHUB_ENV
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
-
-      - name: Execute rollback
-        run: |
-          chmod +x scripts/rollback.sh
-          ./scripts/rollback.sh \
-            "${{ needs.prepare.outputs.environment }}" \
-            "${{ needs.prepare.outputs.services }}" \
-            "$VM_HOST"
-
-  summary:
-    needs: [prepare, deploy, rollback]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deployment Summary
-        run: |
-          echo "DEPLOYMENT SUMMARY"
-          echo "=================="
-          echo "Environment: ${{ needs.prepare.outputs.environment }}"
-          echo "Services: ${{ needs.prepare.outputs.services }}"
-          echo "Image tag: ${{ needs.prepare.outputs.image_tag }}"
-          echo ""
-          echo "Results:"
-          echo "- Deploy: ${{ needs.deploy.result }}"
-          echo "- Rollback: ${{ needs.rollback.result }}"
-          
-          if [[ "${{ needs.deploy.result }}" == "success" ]]; then
-            echo "Deployment successful!"
-          elif [[ "${{ needs.rollback.result }}" == "success" ]]; then
-            echo "Deployment failed but rollback successful"
-          else
-            echo "Deployment failed"
-          fi
+          echo "❌ Déploiement échoué"
+          echo "🔄 Pour un rollback manuel, connectez-vous au serveur et exécutez:"
+          echo "docker stop dreamscape-[service]-${{ github.event.inputs.environment || 'staging' }}"
+          echo "docker run -d --name dreamscape-[service]-${{ github.event.inputs.environment || 'staging' }} [previous-image]"
