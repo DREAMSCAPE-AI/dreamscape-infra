@@ -6,12 +6,43 @@
 
 services:
   # ===============================================
+  # Load Balancer / Reverse Proxy (Traefik)
+  # ===============================================
+  traefik:
+    image: traefik:v2.10
+    command: 
+     # API et dashboard
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      # Provider Docker
+      - "--providers.docker=true"
+      - "--providers.docker.swarmMode=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=bigpods-network"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+    ports:
+      - "80:80"       # HTTP
+      - "443:443"     # HTTPS
+      - "8080:8080"   # Dashboard Traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - bigpods-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+  # ===============================================
   # Core Pod - NGINX + Auth + User Services
   # ===============================================
   core-pod:
-    build:
-      context: ./bigpods/core-pod/
-      dockerfile: Dockerfile.prod
+    image: dreamscape/core-pod:prod
     deploy:
       replicas: 3
       resources:
@@ -29,13 +60,28 @@ services:
       placement:
         constraints:
           - node.role == manager
-    ports:
-      - "80-81-82:80"         # NGINX Gateway
-      - "443-444-445:443"       # NGINX SSL
-      - "3001-3010-3011:3001"     # Auth Service (debug)
-      - "3002-3012-3013:3002"     # User Service (debug)
-      - "9229-9230-9231:9229"     # Node.js inspector (auth)
-      - "9230-9232-9233:9230"     # Node.js inspector (user)
+      labels:
+        # Traefik routing
+        - "traefik.enable=true"
+        # Auth service
+        - "traefik.http.routers.auth.rule=Host(`api.localhost`) && PathPrefix(`/auth`)"
+        - "traefik.http.routers.auth.entrypoints=web"
+        - "traefik.http.services.auth.loadbalancer.server.port=3001"
+        # User service
+        - "traefik.http.routers.user.rule=Host(`api.localhost`) && PathPrefix(`/users`)"
+        - "traefik.http.routers.user.entrypoints=web"
+        - "traefik.http.services.user.loadbalancer.server.port=3002"
+        # Gateway NGINX (catch-all)
+        - "traefik.http.routers.gateway.rule=Host(`api.localhost`)"
+        - "traefik.http.routers.gateway.entrypoints=web"
+        - "traefik.http.services.gateway.loadbalancer.server.port=80"
+    # ports:
+    #   - "80:80"         # NGINX Gateway
+    #   - "443:443"       # NGINX SSL
+    #   - "3001:3001"     # Auth Service (debug)
+    #   - "3002:3002"     # User Service (debug)
+    #   - "9229:9229"     # Node.js inspector (auth)
+    #   - "9230:9230"     # Node.js inspector (user)
     volumes:
       # Mount service code for hot reload
       - ../../dreamscape-services/auth:/app/auth:delegated
@@ -65,10 +111,8 @@ services:
       - JWT_SECRET=prod-jwt-secret-change-in-production
       - KAFKA_BROKERS=kafka:9092
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - postgres
+      - redis
     networks:
       - bigpods-network
     healthcheck:
@@ -83,10 +127,9 @@ services:
   # Business Pod - Voyage + AI + Payment Services
   # ===============================================
   business-pod:
-    build:
-      context: ./bigpods/business-pod/
-      dockerfile: Dockerfile.prod
+    image: dreamscape/business-pod:prod
     deploy:
+      replicas: 5
       resources:
         limits:
           cpus: '2'
@@ -94,13 +137,33 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-    ports:
-      - "3003:3003"     # Voyage Service
-      - "3004:3004"     # AI Service
-      - "3005:3005"     # Payment Service
-      - "9231:9231"     # Node.js inspector (voyage)
-      - "9232:9232"     # Node.js inspector (ai)
-      - "9233:9233"     # Node.js inspector (payment)
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 2
+        delay: 5s
+      labels:
+        # Traefik routing
+        - "traefik.enable=true"
+        # Voyage service
+        - "traefik.http.routers.voyage.rule=Host(`api.localhost`) && PathPrefix(`/voyage`)"
+        - "traefik.http.routers.voyage.entrypoints=web"
+        - "traefik.http.services.voyage.loadbalancer.server.port=3003"
+        # AI service
+        - "traefik.http.routers.ai.rule=Host(`api.localhost`) && PathPrefix(`/ai`)"
+        - "traefik.http.routers.ai.entrypoints=web"
+        - "traefik.http.services.ai.loadbalancer.server.port=3004"
+        # Payment service
+        - "traefik.http.routers.payment.rule=Host(`api.localhost`) && PathPrefix(`/payment`)"
+        - "traefik.http.routers.payment.entrypoints=web"
+        - "traefik.http.services.payment.loadbalancer.server.port=3005"
+    # ports:
+    #   - "3003:3003"     # Voyage Service
+    #   - "3004:3004"     # AI Service
+    #   - "3005:3005"     # Payment Service
+    #   - "9231:9231"     # Node.js inspector (voyage)
+    #   - "9232:9232"     # Node.js inspector (ai)
+    #   - "9233:9233"     # Node.js inspector (payment)
     volumes:
       # Mount service code for hot reload
       - ../../dreamscape-services/voyage:/app/voyage:delegated
@@ -137,14 +200,10 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-prod-secret}
       - S3_BUCKET=dreamscape-vr-assets
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_started
-      minio:
-        condition: service_healthy
+      - postgres
+      - redis
+      - kafka
+      - minio
     networks:
       - bigpods-network
     healthcheck:
@@ -159,9 +218,7 @@ services:
   # Experience Pod - Web Client + Panorama + Gateway
   # ===============================================
   experience-pod:
-    build:
-      context: ./bigpods/experience-pod/
-      dockerfile: Dockerfile.prod
+    image: dreamscape/experience-pod:prod
     deploy:
       resources:
         limits:
@@ -170,13 +227,33 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-    ports:
-      - "3000:80"       # Web Client (Vite production server proxied via NGINX)
-      - "5173:5173"     # Vite HMR direct access
-      - "3006:3006"     # Panorama Service
-      - "4000:4000"     # Gateway Service
-      - "9234:9234"     # Node.js inspector (panorama)
-      - "9235:9235"     # Node.js inspector (gateway)
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+      labels:
+        # Traefik routing
+        - "traefik.enable=true"
+        # Web frontend (page d'accueil)
+        - "traefik.http.routers.web.rule=Host(`localhost`) || Host(`dreamscape.localhost`)"
+        - "traefik.http.routers.web.entrypoints=web"
+        - "traefik.http.services.web.loadbalancer.server.port=80"
+        # Panorama service
+        - "traefik.http.routers.panorama.rule=Host(`api.localhost`) && PathPrefix(`/panorama`)"
+        - "traefik.http.routers.panorama.entrypoints=web"
+        - "traefik.http.services.panorama.loadbalancer.server.port=3006"
+        # Gateway service
+        - "traefik.http.routers.gateway-svc.rule=Host(`api.localhost`) && PathPrefix(`/gateway`)"
+        - "traefik.http.routers.gateway-svc.entrypoints=web"
+        - "traefik.http.services.gateway-svc.loadbalancer.server.port=4000"
+    # ports:
+    #   - "3000:80"       # Web Client (Vite production server proxied via NGINX)
+    #   - "5173:5173"     # Vite HMR direct access
+    #   - "3006:3006"     # Panorama Service
+    #   - "4000:4000"     # Gateway Service
+    #   - "9234:9234"     # Node.js inspector (panorama)
+    #   - "9235:9235"     # Node.js inspector (gateway)
     volumes:
       # Mount frontend code for hot reload
       - ../../dreamscape-frontend/web-client:/app/web:delegated
@@ -363,8 +440,7 @@ services:
   minio-init:
     image: minio/mc:latest
     depends_on:
-      minio:
-        condition: service_healthy
+      - minio
     networks:
       - bigpods-network
     environment:
@@ -408,7 +484,8 @@ volumes:
 # ===============================================
 networks:
   bigpods-network:
-    driver: bridge
+    driver: overlay
+    attachable: true
     ipam:
       config:
         - subnet: 172.28.0.0/16
