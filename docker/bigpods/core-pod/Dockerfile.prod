@@ -40,9 +40,6 @@ RUN apk add --no-cache \
     && apk upgrade --no-cache \
     && rm -rf /var/cache/apk/*
 
-# Install Python packages for monitoring scripts
-RUN pip3 install --no-cache-dir supervisor psutil
-
 # Create directory structure
 WORKDIR /app
 RUN mkdir -p \
