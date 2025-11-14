@@ -8,7 +8,7 @@ FROM node:20-alpine AS auth-builder
 WORKDIR /app/auth
 COPY dreamscape-services/auth/package*.json ./
 COPY dreamscape-services/auth/tsconfig.json ./
-RUN npm ci --include=dev && npm cache clean --force
+RUN npm install --include=dev && npm cache clean --force
 COPY dreamscape-services/auth/src/ ./src/
 COPY dreamscape-services/db/ ../db/
 RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build
@@ -18,7 +18,7 @@ FROM node:20-alpine AS user-builder
 WORKDIR /app/user
 COPY dreamscape-services/user/package*.json ./
 COPY dreamscape-services/user/tsconfig.json ./
-RUN npm ci --include=dev && npm cache clean --force
+RUN npm install --include=dev && npm cache clean --force
 COPY dreamscape-services/user/src/ ./src/
 COPY dreamscape-services/db/ ../db/
 RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build

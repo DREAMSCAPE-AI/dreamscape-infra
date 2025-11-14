@@ -8,7 +8,7 @@ FROM node:20-alpine AS voyage-builder
 WORKDIR /app/voyage
 COPY dreamscape-services/voyage/package*.json ./
 COPY dreamscape-services/voyage/tsconfig.json ./
-RUN npm ci --include=dev && npm cache clean --force
+RUN npm install --include=dev && npm cache clean --force
 COPY dreamscape-services/voyage/src/ ./src/
 COPY dreamscape-services/db/ ../db/
 RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build
@@ -17,14 +17,14 @@ RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build
 FROM node:20-alpine AS ai-builder
 WORKDIR /app/ai
 COPY dreamscape-services/ai/package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
 COPY dreamscape-services/ai/src/ ./src/
 
 # Stage 3: Prepare Payment Service (JavaScript stub - no compilation)
 FROM node:20-alpine AS payment-builder
 WORKDIR /app/payment
 COPY dreamscape-services/payment/package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
 COPY dreamscape-services/payment/src/ ./src/
 
 # Stage 4: Final Multi-Service Runtime
