@@ -1,111 +1,112 @@
-FROM node:20-alpine
+# ============================================================================
+# DreamScape Experience Pod - Production Dockerfile
+# Multi-process container: Web Client + Panorama + Gateway
+# Architecture: React build + NGINX static serving + Node.js services
+# ============================================================================
 
-# Install system dependencies including VR processing tools
+# =============================================================================
+# Stage 1: Build Web Client (React/Vite)
+# =============================================================================
+FROM node:20-alpine AS web-builder
+
+WORKDIR /build/web
+
+COPY dreamscape-frontend/web-client/package*.json ./
+RUN npm install --ignore-scripts && npm cache clean --force
+
+COPY dreamscape-frontend/web-client ./
+
+ENV NODE_ENV=production
+RUN npm run build
+
+# =============================================================================
+# Stage 2: Prepare Panorama Service (JavaScript - no compilation needed)
+# =============================================================================
+FROM node:20-alpine AS panorama-builder
+
+WORKDIR /build/panorama
+
+COPY dreamscape-services/panorama/package*.json ./
+RUN npm install --only=production --ignore-scripts && npm cache clean --force
+
+# Copy source (JavaScript - no compilation)
+COPY dreamscape-services/panorama/src ./src
+
+# =============================================================================
+# Stage 3: Build Gateway Service
+# =============================================================================
+FROM node:20-alpine AS gateway-builder
+
+WORKDIR /build/gateway
+
+COPY dreamscape-frontend/gateway/package*.json ./
+RUN npm install --only=production --ignore-scripts && npm cache clean --force
+
+COPY dreamscape-frontend/gateway/src ./src
+COPY dreamscape-frontend/gateway/tsconfig.json ./
+
+RUN npm install --only=dev typescript @types/node && \
+    npm run build && \
+    rm -rf node_modules && \
+    npm install --only=production --ignore-scripts
+
+# =============================================================================
+# Stage 4: Production Image
+# =============================================================================
+FROM node:20-alpine AS production
+
+# Install system dependencies
 RUN apk add --no-cache \
     nginx \
     supervisor \
     curl \
     bash \
-    git \
-    python3 \
-    make \
-    g++ \
-    imagemagick \
-    ffmpeg \
-    libwebp-tools
+    tini \
+    dumb-init \
+    ca-certificates && \
+    apk upgrade --no-cache
 
-# Create application directories
-RUN mkdir -p /app/web /app/panorama /app/gateway /var/log/supervisor /var/log/nginx /usr/share/nginx/html
+# Use existing node user (UID 1000, GID 1000)
+RUN mkdir -p /app/web /app/panorama /app/gateway /var/log/supervisor /var/log/nginx /var/run/nginx /usr/share/nginx/html && \
+    chown -R node:node /app /var/log/supervisor /var/log/nginx /var/run/nginx /usr/share/nginx/html
 
-# Set working directory
-WORKDIR /app
+# Copy built web client to nginx serve directory
+COPY --from=web-builder --chown=node:node /build/web/dist /usr/share/nginx/html
 
-# Install production tools globally
-RUN npm install -g nodemon typescript ts-node vite
+# Copy panorama service (JavaScript)
+COPY --from=panorama-builder --chown=node:node /build/panorama/src /app/panorama/src
+COPY --from=panorama-builder --chown=node:node /build/panorama/node_modules /app/panorama/node_modules
+COPY --from=panorama-builder --chown=node:node /build/panorama/package.json /app/panorama/
 
-# Copy package files for all services (will be overridden by volume mounts)
-# These are just placeholders for initial build
-RUN echo '{"name":"web-client","version":"1.0.0","scripts":{"dev":"vite --host 0.0.0.0 --port 5173"},"dependencies":{"vite":"^5.0.0"}}' > /app/web/package.json
-RUN echo '{"name":"panorama-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/panorama/package.json
-RUN echo '{"name":"gateway-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/gateway/package.json
+COPY --from=gateway-builder --chown=node:node /build/gateway/dist /app/gateway/dist
+COPY --from=gateway-builder --chown=node:node /build/gateway/node_modules /app/gateway/node_modules
+COPY --from=gateway-builder --chown=node:node /build/gateway/package.json /app/gateway/
 
-# Install dependencies (will be overridden, but needed for build)
-RUN cd /app/web && npm install --silent || true
-RUN cd /app/panorama && npm install --silent || true
-RUN cd /app/gateway && npm install --silent || true
+# Copy NGINX configuration
+COPY dreamscape-infra/docker/bigpods/experience-pod/nginx.conf /etc/nginx/nginx.conf
 
-# Build applications
-# RUN cd /app/web && npm run build
-# RUN cd /app/panorama && npm run build
-# RUN cd /app/gateway && npm run build
+# Copy Supervisor configuration
+COPY dreamscape-infra/docker/bigpods/experience-pod/supervisord.conf /etc/supervisor/supervisord.conf
 
-# Copy NGINX configuration for Production (proxies to Vite prod server)
-COPY nginx.prod.conf /etc/nginx/nginx.conf
-
-# Copy supervisor configuration
-COPY ./supervisor/supervisord.prod.conf /etc/supervisord.conf
-
-# Create startup script
-RUN cat > /start.sh <<'EOF'
-#!/bin/bash
-set -euo pipefail
-
-echo "🚀 Starting DreamScape Experience Pod (Development)"
-
-# Install/update dependencies if package.json changed
-if [ -f /app/web/package.json ]; then
-    echo "📦 Installing Web Client dependencies..."
-    cd /app/web && npm install --silent || {
-        echo "❌ Failed to install web client dependencies"
-        exit 1
-    }
-fi
-
-if [ -f /app/panorama/package.json ]; then
-    echo "📦 Installing Panorama Service dependencies..."
-    cd /app/panorama && npm install --silent || {
-        echo "❌ Failed to install panorama dependencies"
-        exit 1
-    }
-fi
-
-if [ -f /app/gateway/package.json ]; then
-    echo "📦 Installing Gateway Service dependencies..."
-    cd /app/gateway && npm install --silent || {
-        echo "❌ Failed to install gateway dependencies"
-        exit 1
-    }
-fi
-
-# Run database migrations
-echo "🔄 Running database migrations..."
-if [ -f /app/panorama/package.json ] && grep -q "migrate" /app/panorama/package.json 2>/dev/null; then
-    cd /app/panorama && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for panorama service"
-fi
-
-if [ -f /app/gateway/package.json ] && grep -q "migrate" /app/gateway/package.json 2>/dev/null; then
-    cd /app/gateway && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for gateway service"
-fi
-
-# Wait for dependencies
-echo "⏳ Waiting for infrastructure services..."
-timeout 60 bash -c 'until curl -f http://minio:9000/minio/health/live 2>/dev/null; do sleep 2; done' || true
-
-# Start supervisor (manages NGINX + Vite + Panorama + Gateway)
-echo "✅ Starting services with Supervisor..."
-exec /usr/bin/supervisord -c /etc/supervisord.conf
-EOF
-
-RUN chmod +x /start.sh
+# Create health check script
+RUN echo '#!/bin/sh' > /usr/local/bin/health-check.sh && \
+    echo 'curl -f http://localhost/health || exit 1' >> /usr/local/bin/health-check.sh && \
+    chmod +x /usr/local/bin/health-check.sh
 
 # Expose ports
-EXPOSE 80 5173 3006 4000 9234 9235
+EXPOSE 80 3006 4000 9090
+
+# Switch to non-root user
+USER node
+
+WORKDIR /app
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
+    CMD /usr/local/bin/health-check.sh
 
-# Start services
-RUN chmod +x /start.sh
-RUN dos2unix /start.sh 2>/dev/null || sed -i 's/\r$//' /start.sh
-CMD ["/start.sh"] 
+# Use tini for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

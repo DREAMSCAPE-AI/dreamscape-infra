@@ -1,107 +1,137 @@
-FROM node:20-alpine
+# Multi-Service Business Pod Dockerfile with Supervisor
+# DR-336: INFRA-010 - Business Logic Services
+# Combines Voyage, AI, and Payment services in a single container
+# PRODUCTION VERSION - Adapted for monorepo structure
 
-# Install system dependencies
+# Stage 1: Build Voyage Service (TypeScript)
+FROM node:20-alpine AS voyage-builder
+WORKDIR /app/voyage
+COPY dreamscape-services/voyage/package*.json ./
+COPY dreamscape-services/voyage/tsconfig.json ./
+RUN npm ci --include=dev && npm cache clean --force
+COPY dreamscape-services/voyage/src/ ./src/
+COPY dreamscape-services/db/ ../db/
+RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build
+
+# Stage 2: Prepare AI Service (JavaScript - no compilation)
+FROM node:20-alpine AS ai-builder
+WORKDIR /app/ai
+COPY dreamscape-services/ai/package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+COPY dreamscape-services/ai/src/ ./src/
+
+# Stage 3: Prepare Payment Service (JavaScript stub - no compilation)
+FROM node:20-alpine AS payment-builder
+WORKDIR /app/payment
+COPY dreamscape-services/payment/package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+COPY dreamscape-services/payment/src/ ./src/
+
+# Stage 4: Final Multi-Service Runtime
+FROM node:20-alpine AS runtime
+
+# Install system dependencies including Supervisor
 RUN apk add --no-cache \
     supervisor \
+    nginx \
+    python3 \
+    py3-pip \
+    py3-psutil \
     curl \
     bash \
-    git \
-    python3 \
-    make \
-    g++ \
-    imagemagick \
-    ffmpeg
+    dumb-init \
+    ca-certificates \
+    && apk upgrade --no-cache \
+    && rm -rf /var/cache/apk/*
 
-# Create application directories
-RUN mkdir -p /app/voyage /app/ai /app/payment /var/log/supervisor
+# Install Python packages for monitoring
+RUN pip3 install --no-cache-dir supervisor psutil
 
-# Set working directory
+# Create directory structure
 WORKDIR /app
+RUN mkdir -p \
+    /app/voyage \
+    /app/ai \
+    /app/payment \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /etc/supervisor/conf.d \
+    /run/supervisor
 
-# Install nodemon globally for hot reload
-RUN npm install -g nodemon typescript ts-node
+# Create users
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
 
-# Copy package files for all services (will be overridden by volume mounts)
-# These are just placeholders for initial build
-RUN echo '{"name":"voyage-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/voyage/package.json
-RUN echo '{"name":"ai-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/ai/package.json
-RUN echo '{"name":"payment-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/payment/package.json
+# Copy Voyage Service built artifacts (TypeScript)
+COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/node_modules /app/voyage/node_modules
+COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/dist /app/voyage/dist
+COPY --from=voyage-builder --chown=nodejs:nodejs /app/db/node_modules/@prisma /app/voyage/node_modules/@prisma
+COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/package.json /app/voyage/
 
-# Install dependencies (will be overridden, but needed for build)
-RUN cd /app/voyage && npm install --silent || true
-RUN cd /app/ai && npm install --silent || true
-RUN cd /app/payment && npm install --silent || true
+# Copy AI Service (JavaScript)
+COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/node_modules /app/ai/node_modules
+COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/src /app/ai/src
+COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/package.json /app/ai/
 
-# Build application
-# RUN cd /app/voyage && npm build &&
-# RUN cd /app/ai && run npm build && 
-# RUN cd /app/payment && run npm run build &&
+# Copy Payment Service (JavaScript stub)
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/node_modules /app/payment/node_modules
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/src /app/payment/src
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/package.json /app/payment/
 
-# Copy supervisor configuration
-COPY supervisor.prod.conf /etc/supervisor.conf
+# Copy NGINX configuration
+COPY --chown=nginx:nginx dreamscape-infra/docker/business-pod/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY --chown=nginx:nginx dreamscape-infra/docker/business-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
 
-# Create startup script
-RUN cat > /start.sh <<'EOF'
-#!/bin/bash
-set -euo pipefail
+# Copy Supervisor configuration and scripts (note: "script" not "scripts")
+COPY --chown=root:root dreamscape-infra/docker/business-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --chown=root:root dreamscape-infra/docker/business-pod/script/ /app/scripts/
 
-echo "🚀 Starting DreamScape Business Pod (Development)"
+# Make scripts executable
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh 2>/dev/null || true
 
-# Install/update dependencies if package.json changed
-if [ -f /app/voyage/package.json ]; then
-    echo "📦 Installing Voyage Service dependencies..."
-    cd /app/voyage && npm install --silent || {
-        echo "❌ Failed to install voyage dependencies"
-        exit 1
-    }
-fi
+# Create necessary directories with proper permissions
+RUN mkdir -p \
+    /app/voyage/logs \
+    /app/ai/logs \
+    /app/payment/logs \
+    && chown -R nodejs:nodejs /app/voyage /app/ai /app/payment \
+    && chown -R nginx:nginx /var/log/nginx /etc/nginx
 
-if [ -f /app/ai/package.json ]; then
-    echo "📦 Installing AI Service dependencies..."
-    cd /app/ai && npm install --silent || {
-        echo "❌ Failed to install ai dependencies"
-        exit 1
-    }
-fi
+# Copy entrypoint script (note: "script" not "scripts")
+COPY dreamscape-infra/docker/business-pod/script/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-if [ -f /app/payment/package.json ]; then
-    echo "📦 Installing Payment Service dependencies..."
-    cd /app/payment && npm install --silent || {
-        echo "❌ Failed to install payment dependencies"
-        exit 1
-    }
-fi
+# Expose ports for all services
+EXPOSE 80 3003 3004 3005
 
-# Run database migrations
-echo "🔄 Running database migrations..."
-if [ -f /app/voyage/package.json ] && grep -q "migrate" /app/voyage/package.json 2>/dev/null; then
-    cd /app/voyage && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for voyage service"
-fi
+# Environment variables
+ENV NODE_ENV=production \
+    SUPERVISOR_USER=admin \
+    SUPERVISOR_PASS=dreamscape_supervisor_123
 
-if [ -f /app/payment/package.json ] && grep -q "migrate" /app/payment/package.json 2>/dev/null; then
-    cd /app/payment && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for payment service"
-fi
+# Health check that verifies all services
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD python3 /app/scripts/business_pod_health_check.py || curl -f http://localhost/health || exit 1
 
-# Wait for dependencies
-echo "⏳ Waiting for infrastructure services..."
-timeout 60 bash -c 'until curl -f http://postgres:5432 2>/dev/null; do sleep 2; done' || true
-timeout 60 bash -c 'until curl -f http://redis:6379 2>/dev/null; do sleep 2; done' || true
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "/usr/local/bin/entrypoint.sh"]
 
-# Start supervisor (manages all 3 services)
-echo "✅ Starting services with Supervisor..."
-exec /usr/bin/supervisord -c /etc/supervisord.conf
-EOF
+# Start Supervisor as the main process
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
 
-RUN chmod +x /start.sh
+# Metadata labels
+LABEL maintainer="DreamScape Team <dev@dreamscape.com>" \
+      version="1.0.0" \
+      description="DreamScape Business Pod - Multi-service container with Voyage, AI, and Payment services" \
+      org.opencontainers.image.source="https://github.com/DREAMSCAPE-AI/dreamscape-business-pod" \
+      org.opencontainers.image.title="DreamScape Business Pod" \
+      org.opencontainers.image.description="Supervisor-orchestrated container with business logic microservices" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.vendor="DreamScape"
 
-# Expose ports
-EXPOSE 3003 3004 3005 9231 9232 9233
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:3003/health || exit 1
-
-# Start services
-RUN chmod +x /start.sh
-RUN dos2unix /start.sh 2>/dev/null || sed -i 's/\r$//' /start.sh
-CMD ["/start.sh"]
+# Build optimization metadata
+LABEL supervisor.managed="true" \
+      processes="nginx,voyage-service,ai-service,payment-service,health-checker" \
+      architecture="multi-process-container" \
+      orchestration="supervisor"
