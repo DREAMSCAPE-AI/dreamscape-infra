@@ -1,34 +1,47 @@
 # Multi-Service Business Pod Dockerfile with Supervisor
-# DR-336: INFRA-010 - Business Logic Services
-# Combines Voyage, AI, and Payment services in a single container
+# DR-336: INFRA-011 - Business Logic Services
+# Combines Voyage, AI (stub), and Payment (stub) services in a single container
 # PRODUCTION VERSION - Adapted for monorepo structure
 
-# Stage 1: Build Voyage Service (TypeScript)
-FROM node:20-alpine AS voyage-builder
+# Stage 1: Build Voyage Service (TypeScript ES Modules)
+# Using Alpine 3.18 for OpenSSL 1.1 compatibility with Prisma
+FROM node:20-alpine3.18 AS voyage-builder
+WORKDIR /app
+
+# Copy voyage service files
+COPY dreamscape-services/voyage/package.json dreamscape-services/voyage/tsconfig.json ./voyage/
+
+# Copy .tscaliasrc.json if exists
+COPY dreamscape-services/voyage/.tscaliasrc.json* ./voyage/
+
 WORKDIR /app/voyage
-COPY dreamscape-services/voyage/package*.json ./
-COPY dreamscape-services/voyage/tsconfig.json ./
-RUN npm install --include=dev && npm cache clean --force
-COPY dreamscape-services/voyage/src/ ./src/
-COPY dreamscape-services/db/ ../db/
-RUN npx prisma generate --schema=../db/prisma/schema.prisma && npm run build
+ENV CYPRESS_INSTALL_BINARY=0
+RUN npm install --production=false
 
-# Stage 2: Prepare AI Service (JavaScript - no compilation)
-FROM node:20-alpine AS ai-builder
-WORKDIR /app/ai
-COPY dreamscape-services/ai/package*.json ./
-RUN npm install --only=production && npm cache clean --force
-COPY dreamscape-services/ai/src/ ./src/
+# Install tsc-alias for path resolution at build time
+RUN npm install --save-dev tsc-alias
 
-# Stage 3: Prepare Payment Service (JavaScript stub - no compilation)
-FROM node:20-alpine AS payment-builder
-WORKDIR /app/payment
-COPY dreamscape-services/payment/package*.json ./
-RUN npm install --only=production && npm cache clean --force
-COPY dreamscape-services/payment/src/ ./src/
+# Copy source and prisma
+COPY dreamscape-services/voyage/src ./src
+COPY dreamscape-services/voyage/prisma ./prisma
 
-# Stage 4: Final Multi-Service Runtime
-FROM node:20-alpine AS runtime
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build TypeScript and resolve path aliases
+RUN npm run build && npx tsc-alias -p tsconfig.json
+
+# Add .js extensions to ES module local imports
+RUN find dist -name '*.js' -type f -exec sed -i -E \
+    -e "s|from '\./routes'|from './routes/index.js'|g" \
+    -e "s|from '(\./[^']+)'|from '\1.js'|g" \
+    -e "s|from '(\.\./[^']+)'|from '\1.js'|g" \
+    -e "s|\.js\.js'|.js'|g" \
+    {} \;
+
+# Stage 2: Final Multi-Service Runtime
+# Using Alpine 3.18 for OpenSSL 1.1 compatibility
+FROM node:20-alpine3.18 AS runtime
 
 # Install system dependencies including Supervisor
 RUN apk add --no-cache \
@@ -38,7 +51,6 @@ RUN apk add --no-cache \
     py3-pip \
     py3-psutil \
     curl \
-    bash \
     dumb-init \
     ca-certificates \
     && apk upgrade --no-cache \
@@ -54,33 +66,30 @@ RUN mkdir -p \
     /var/log/supervisor \
     /var/log/nginx \
     /etc/supervisor/conf.d \
-    /run/supervisor
+    /run/supervisor \
+    /run/nginx
 
 # Create users
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
 
-# Copy Voyage Service built artifacts (TypeScript)
-COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/node_modules /app/voyage/node_modules
+# Copy Voyage Service built artifacts (TypeScript ES Modules)
 COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/dist /app/voyage/dist
-COPY --from=voyage-builder --chown=nodejs:nodejs /app/db/node_modules/@prisma /app/voyage/node_modules/@prisma
+COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/node_modules /app/voyage/node_modules
 COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/package.json /app/voyage/
 
-# Copy AI Service (JavaScript)
-COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/node_modules /app/ai/node_modules
-COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/src /app/ai/src
-COPY --from=ai-builder --chown=nodejs:nodejs /app/ai/package.json /app/ai/
+# Copy AI Service stub (Python - no build needed)
+COPY --chown=nodejs:nodejs dreamscape-services/ai/src/stub_server.py /app/ai/server.py
 
-# Copy Payment Service (JavaScript stub)
-COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/node_modules /app/payment/node_modules
-COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/src /app/payment/src
-COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/package.json /app/payment/
+# Copy Payment Service stub (JavaScript - no build needed)
+COPY --chown=nodejs:nodejs dreamscape-services/payment/src/stub-server.js /app/payment/server.js
+COPY --chown=nodejs:nodejs dreamscape-services/payment/package.json /app/payment/
 
 # Copy NGINX configuration
 COPY --chown=nginx:nginx dreamscape-infra/docker/business-pod/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=nginx:nginx dreamscape-infra/docker/business-pod/nginx/default.conf /etc/nginx/conf.d/default.conf
 
-# Copy Supervisor configuration and scripts (note: "script" not "scripts")
+# Copy Supervisor configuration and scripts
 COPY --chown=root:root dreamscape-infra/docker/business-pod/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY --chown=root:root dreamscape-infra/docker/business-pod/script/ /app/scripts/
 
@@ -92,10 +101,9 @@ RUN mkdir -p \
     /app/voyage/logs \
     /app/ai/logs \
     /app/payment/logs \
-    && chown -R nodejs:nodejs /app/voyage /app/ai /app/payment \
-    && chown -R nginx:nginx /var/log/nginx /etc/nginx
+    && chown -R nginx:nginx /var/log/nginx /etc/nginx /run/nginx
 
-# Copy entrypoint script (note: "script" not "scripts")
+# Copy entrypoint script
 COPY dreamscape-infra/docker/business-pod/script/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
@@ -120,7 +128,7 @@ CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
 # Metadata labels
 LABEL maintainer="DreamScape Team <dev@dreamscape.com>" \
       version="1.0.0" \
-      description="DreamScape Business Pod - Multi-service container with Voyage, AI, and Payment services" \
+      description="DreamScape Business Pod - Multi-service container with Voyage, AI (stub), and Payment (stub) services" \
       org.opencontainers.image.source="https://github.com/DREAMSCAPE-AI/dreamscape-business-pod" \
       org.opencontainers.image.title="DreamScape Business Pod" \
       org.opencontainers.image.description="Supervisor-orchestrated container with business logic microservices" \
