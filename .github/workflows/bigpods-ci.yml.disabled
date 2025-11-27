@@ -1,0 +1,136 @@
+name: 🧪 DreamScape Big Pods - Continuous Integration
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'hotfix/**']
+    paths:
+      - 'scripts/bigpods/**'
+      - '.dreamscape.config.yml'
+      - '.github/workflows/bigpods-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'scripts/bigpods/**'
+      - '.dreamscape.config.yml'
+      - '.github/workflows/bigpods-ci.yml'
+
+# Concurrency to cancel previous runs on new push
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DREAMSCAPE_ENV: ci
+
+jobs:
+  # ============================================================================
+  # Basic Validation: Only essential checks for infra repo
+  # ============================================================================
+  basic-validation:
+    name: 🔍 Basic Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Fix Script Permissions
+        run: |
+          echo "🔧 Setting script permissions..."
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
+
+      - name: 🧪 Validate Script Syntax
+        run: |
+          echo "🧪 Validating script syntax..."
+
+          scripts=(
+            "scripts/bigpods/build-bigpods.sh"
+            "scripts/bigpods/dev-bigpods.sh"
+            "scripts/bigpods/debug-bigpods.sh"
+            "scripts/bigpods/deploy-bigpods.sh"
+            "scripts/bigpods/backup-bigpods.sh"
+            "scripts/bigpods/maintenance-bigpods.sh"
+            "scripts/bigpods/logs-bigpods.sh"
+            "scripts/bigpods/monitoring-bigpods.sh"
+            "scripts/bigpods/scale-bigpods.sh"
+            "scripts/bigpods/lib/common.sh"
+          )
+
+          for script in "${scripts[@]}"; do
+            echo "🔍 Checking $script..."
+            if bash -n "$script"; then
+              echo "✅ $script: syntax OK"
+            else
+              echo "❌ $script: syntax error"
+              exit 1
+            fi
+          done
+
+      - name: 🛡️ Check Script Permissions
+        run: |
+          echo "🛡️ Checking script permissions..."
+          find scripts/bigpods -name "*.sh" -type f | while read script; do
+            perms=$(stat -c "%a" "$script")
+            if [[ "$perms" =~ ^[67][57][57]$ ]]; then
+              echo "✅ $script: $perms"
+            else
+              echo "❌ $script: $perms (should be executable)"
+              exit 1
+            fi
+          done
+
+      - name: 📋 Validate Configuration
+        run: |
+          echo "📋 Validating .dreamscape.config.yml..."
+          if [[ -f ".dreamscape.config.yml" ]]; then
+            python3 -c "import yaml; yaml.safe_load(open('.dreamscape.config.yml'))"
+            echo "✅ Configuration file is valid YAML"
+          else
+            echo "❌ Configuration file not found"
+            exit 1
+          fi
+
+      - name: 📊 Scripts Summary
+        run: |
+          echo "📊 Big Pods Scripts Summary:"
+          echo "============================"
+          find scripts/bigpods -name "*.sh" -type f | sort | while read script; do
+            size=$(wc -l < "$script")
+            echo "📄 $script ($size lines)"
+          done
+          echo ""
+          echo "✅ Validation completed successfully"
+          echo "📝 Note: Comprehensive tests are in dreamscape-tests repository"
+          echo "🔗 Test branch: DR-331-bigpods-tests"
+
+  # ============================================================================
+  # Final Summary
+  # ============================================================================
+  validation-summary:
+    name: 📊 Validation Summary
+    runs-on: ubuntu-latest
+    needs: [basic-validation]
+    if: always()
+    timeout-minutes: 2
+
+    steps:
+      - name: 📊 Generate Summary
+        run: |
+          echo "📊 DreamScape Big Pods - Validation Summary"
+          echo "==========================================="
+          echo ""
+          echo "🔍 Basic Validation: ${{ needs.basic-validation.result }}"
+          echo ""
+
+          if [[ "${{ needs.basic-validation.result }}" == "success" ]]; then
+            echo "🎉 All validations passed!"
+            echo "✅ Scripts are ready for use"
+            echo ""
+            echo "📍 Repository: dreamscape-infra (scripts only)"
+            echo "🧪 Tests: dreamscape-tests (DR-331-bigpods-tests branch)"
+          else
+            echo "❌ Validation failed"
+            echo "🔍 Please check script syntax and permissions"
+            exit 1
+          fi
