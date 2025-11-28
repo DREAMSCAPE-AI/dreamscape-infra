@@ -283,7 +283,14 @@ jobs:
           node-version: '18'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f "package-lock.json" ]; then
+            echo "📦 Using npm ci (lockfile found)"
+            npm ci
+          else
+            echo "📦 Using npm install (no lockfile)"
+            npm install
+          fi
 
       - name: Run integration tests
         env:
