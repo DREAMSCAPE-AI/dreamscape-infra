@@ -345,8 +345,23 @@ jobs:
           # Check if we should build this service
           if [[ "${COMPONENT}" == "all" ]] || [[ "${COMPONENT}" == *"${SERVICE}"* ]]; then
             if [ -d "source-repo/${SERVICE}" ] || [ -d "source-repo/${SERVICE}-service" ]; then
+              # Determine Dockerfile path
+              SERVICE_DIR="source-repo/${SERVICE}"
+              [ ! -d "${SERVICE_DIR}" ] && SERVICE_DIR="source-repo/${SERVICE}-service"
+
+              if [ -f "${SERVICE_DIR}/Dockerfile.prod" ]; then
+                DOCKERFILE="Dockerfile.prod"
+              elif [ -f "${SERVICE_DIR}/Dockerfile" ]; then
+                DOCKERFILE="Dockerfile"
+              else
+                echo "should_build=false" >> $GITHUB_OUTPUT
+                echo "⏭️ Skipping ${SERVICE} (no Dockerfile found)"
+                exit 0
+              fi
+
               echo "should_build=true" >> $GITHUB_OUTPUT
-              echo "✅ Will build ${SERVICE}"
+              echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
+              echo "✅ Will build ${SERVICE} using ${DOCKERFILE}"
             else
               echo "should_build=false" >> $GITHUB_OUTPUT
               echo "⏭️ Skipping ${SERVICE} (not found)"
@@ -373,6 +388,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: source-repo/${{ matrix.service }}
+          file: source-repo/${{ matrix.service }}/${{ steps.check.outputs.dockerfile }}
           push: true
           tags: |
             ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-and-create-deployment.outputs.source_sha }}
