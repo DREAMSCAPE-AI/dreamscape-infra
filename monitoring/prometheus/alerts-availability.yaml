@@ -1,0 +1,301 @@
+# Availability Alerts for DreamScape Services
+# INFRA-013.2 - Monitoring de disponibilité
+#
+# These alerts trigger based on health check endpoints and SLA metrics
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dreamscape-availability-alerts
+  namespace: monitoring
+  labels:
+    app: dreamscape-prometheus
+    release: dreamscape-monitoring
+spec:
+  groups:
+  - name: dreamscape.availability.health
+    rules:
+    # Service unhealthy based on /health endpoint
+    - alert: ServiceUnhealthy
+      expr: dreamscape:service:health_status == 0
+      for: 2m
+      labels:
+        severity: critical
+        category: availability
+        sla_impact: high
+      annotations:
+        summary: "Service {{ $labels.service }} is unhealthy"
+        description: |
+          Service {{ $labels.service }} in environment {{ $labels.environment }} has failed its health check.
+          The service has been unhealthy for more than 2 minutes.
+
+          Current status: UNHEALTHY
+          Environment: {{ $labels.environment }}
+
+          Action required: Check service logs and dependencies immediately.
+        runbook_url: "https://docs.dreamscape.com/runbooks/service-unhealthy"
+        dashboard_url: "https://grafana.dreamscape.com/d/availability/service-availability?var-service={{ $labels.service }}"
+
+    # Service degraded (health check returns but with warnings)
+    - alert: ServiceDegraded
+      expr: |
+        dreamscape:service:health_status == 1
+        and
+        dreamscape:service:response_time_p95 > 1.0
+      for: 10m
+      labels:
+        severity: warning
+        category: availability
+        sla_impact: medium
+      annotations:
+        summary: "Service {{ $labels.service }} is degraded"
+        description: |
+          Service {{ $labels.service }} is responding but with degraded performance.
+          95th percentile response time is {{ $value | humanizeDuration }}.
+
+          This may indicate:
+          - High load or resource constraints
+          - Dependency issues (database, cache, external APIs)
+          - Memory or CPU saturation
+
+          Action: Investigate service metrics and scale if needed.
+        runbook_url: "https://docs.dreamscape.com/runbooks/service-degraded"
+
+    # Liveness probe failing
+    - alert: LivenessProbeFailure
+      expr: probe_success{job="dreamscape-liveness"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        category: availability
+        probe_type: liveness
+      annotations:
+        summary: "Liveness probe failing for {{ $labels.service }}"
+        description: |
+          Liveness probe for service {{ $labels.service }} has failed.
+          Kubernetes will restart the pod if this continues.
+
+          Service: {{ $labels.service }}
+          Environment: {{ $labels.environment }}
+
+          Immediate action required to prevent service restart.
+        runbook_url: "https://docs.dreamscape.com/runbooks/liveness-failure"
+
+    # Readiness probe failing
+    - alert: ReadinessProbeFailure
+      expr: probe_success{job="dreamscape-readiness"} == 0
+      for: 5m
+      labels:
+        severity: warning
+        category: availability
+        probe_type: readiness
+      annotations:
+        summary: "Readiness probe failing for {{ $labels.service }}"
+        description: |
+          Readiness probe for service {{ $labels.service }} has failed.
+          The service is not receiving traffic from the load balancer.
+
+          This typically indicates:
+          - Database connection issues
+          - Cache unavailability
+          - Dependency service down
+
+          Action: Check service dependencies and logs.
+        runbook_url: "https://docs.dreamscape.com/runbooks/readiness-failure"
+
+    # Multiple services down
+    - alert: MultipleServicesDown
+      expr: dreamscape:services:unhealthy_count >= 2
+      for: 1m
+      labels:
+        severity: critical
+        category: availability
+        scope: platform
+      annotations:
+        summary: "Multiple DreamScape services are down"
+        description: |
+          {{ $value }} services are currently unhealthy.
+
+          This indicates a potential platform-wide issue:
+          - Infrastructure problem (network, cluster)
+          - Shared dependency failure (database, cache)
+          - Resource exhaustion
+
+          CRITICAL: Platform stability at risk. Immediate investigation required.
+        runbook_url: "https://docs.dreamscape.com/runbooks/platform-outage"
+
+  - name: dreamscape.availability.sla
+    rules:
+    # SLA breach warning (below 99.9%)
+    - alert: SLABreachWarning
+      expr: dreamscape:service:uptime_30d < 99.9
+      for: 30m
+      labels:
+        severity: warning
+        category: sla
+        sla_target: "99.9%"
+      annotations:
+        summary: "SLA breach warning for {{ $labels.service }}"
+        description: |
+          Service {{ $labels.service }} uptime is below 99.9% SLA target.
+
+          Current 30-day uptime: {{ $value | humanizePercentage }}
+          SLA target: 99.9%
+          Gap: {{ sub 99.9 $value | humanizePercentage }}
+
+          Total downtime this month: {{ printf "dreamscape:service:downtime_seconds_30d{service='%s'}" $labels.service | query | first | value | humanizeDuration }}
+
+          Action: Review recent incidents and implement preventive measures.
+        runbook_url: "https://docs.dreamscape.com/runbooks/sla-breach"
+        dashboard_url: "https://grafana.dreamscape.com/d/sla/service-sla?var-service={{ $labels.service }}"
+
+    # SLA breach critical (below 99.5%)
+    - alert: SLABreachCritical
+      expr: dreamscape:service:uptime_30d < 99.5
+      for: 15m
+      labels:
+        severity: critical
+        category: sla
+        sla_target: "99.5%"
+      annotations:
+        summary: "CRITICAL: SLA breach for {{ $labels.service }}"
+        description: |
+          Service {{ $labels.service }} has breached the minimum 99.5% SLA.
+
+          Current 30-day uptime: {{ $value | humanizePercentage }}
+          Minimum SLA: 99.5%
+          Gap: {{ sub 99.5 $value | humanizePercentage }}
+
+          This is a CRITICAL SLA violation requiring immediate escalation.
+        runbook_url: "https://docs.dreamscape.com/runbooks/sla-critical-breach"
+
+    # Frequent downtime incidents
+    - alert: FrequentDowntimeIncidents
+      expr: dreamscape:service:downtime_incidents_24h > 5
+      for: 0m
+      labels:
+        severity: warning
+        category: stability
+      annotations:
+        summary: "Frequent downtime incidents for {{ $labels.service }}"
+        description: |
+          Service {{ $labels.service }} has experienced {{ $value }} downtime incidents in the last 24 hours.
+
+          This indicates service instability. Possible causes:
+          - Crash loops or OOMKills
+          - Dependency flapping
+          - Configuration issues
+          - Resource constraints
+
+          Action: Investigate root cause and improve service stability.
+        runbook_url: "https://docs.dreamscape.com/runbooks/service-instability"
+
+    # High Mean Time To Recovery (MTTR)
+    - alert: HighMTTR
+      expr: dreamscape:service:mttr_seconds_24h > 600
+      for: 30m
+      labels:
+        severity: warning
+        category: recovery
+      annotations:
+        summary: "High MTTR for {{ $labels.service }}"
+        description: |
+          Mean Time To Recovery (MTTR) for {{ $labels.service }} is {{ $value | humanizeDuration }}.
+
+          Target MTTR: < 10 minutes
+          Current MTTR: {{ $value | humanizeDuration }}
+
+          High MTTR indicates:
+          - Slow incident detection
+          - Manual recovery processes
+          - Complex failure scenarios
+
+          Action: Improve monitoring, alerting, and automated recovery.
+        runbook_url: "https://docs.dreamscape.com/runbooks/high-mttr"
+
+  - name: dreamscape.availability.dependencies
+    rules:
+    # Database unavailability affecting services
+    - alert: DatabaseUnavailabilityImpact
+      expr: |
+        (dreamscape:dependency:postgresql_available == 0
+        or dreamscape:dependency:mongodb_available == 0)
+        and
+        dreamscape:services:unhealthy_count > 0
+      for: 2m
+      labels:
+        severity: critical
+        category: dependency
+      annotations:
+        summary: "Database unavailability affecting services"
+        description: |
+          One or more databases are unavailable, impacting {{ printf "dreamscape:services:unhealthy_count" | query | first | value }} services.
+
+          Database status:
+          - PostgreSQL: {{ if eq (printf "dreamscape:dependency:postgresql_available" | query | first | value) 1.0 }}UP{{ else }}DOWN{{ end }}
+          - MongoDB: {{ if eq (printf "dreamscape:dependency:mongodb_available" | query | first | value) 1.0 }}UP{{ else }}DOWN{{ end }}
+
+          CRITICAL: Restore database connectivity immediately.
+        runbook_url: "https://docs.dreamscape.com/runbooks/database-outage"
+
+    # Cache unavailability (Redis)
+    - alert: CacheUnavailability
+      expr: dreamscape:dependency:redis_available == 0
+      for: 5m
+      labels:
+        severity: warning
+        category: dependency
+      annotations:
+        summary: "Redis cache is unavailable"
+        description: |
+          Redis cache is unavailable. Services may operate in degraded mode without caching.
+
+          Impact:
+          - Increased database load
+          - Slower response times
+          - Potential service degradation
+
+          Action: Restore Redis service.
+        runbook_url: "https://docs.dreamscape.com/runbooks/redis-down"
+
+    # Overall dependency health degraded
+    - alert: DependencyHealthDegraded
+      expr: dreamscape:dependency:health_score < 80
+      for: 10m
+      labels:
+        severity: warning
+        category: dependency
+      annotations:
+        summary: "Overall dependency health is degraded"
+        description: |
+          Overall dependency health score is {{ $value | humanizePercentage }}.
+
+          Multiple dependencies may be experiencing issues.
+          This can cascade into widespread service degradation.
+
+          Action: Review all dependency statuses and restore health.
+        runbook_url: "https://docs.dreamscape.com/runbooks/dependency-health"
+
+  - name: dreamscape.availability.capacity
+    rules:
+    # Service approaching capacity limits
+    - alert: ServiceApproachingCapacity
+      expr: |
+        (
+          rate(http_requests_total[5m])
+          /
+          on(service) group_left() dreamscape:service:capacity_limit
+        ) > 0.8
+      for: 15m
+      labels:
+        severity: warning
+        category: capacity
+      annotations:
+        summary: "Service {{ $labels.service }} approaching capacity"
+        description: |
+          Service {{ $labels.service }} is at {{ $value | humanizePercentage }} of capacity.
+
+          Current request rate is approaching limits. Consider scaling.
+
+          Action: Review traffic patterns and scale horizontally if needed.
+        runbook_url: "https://docs.dreamscape.com/runbooks/scale-service"

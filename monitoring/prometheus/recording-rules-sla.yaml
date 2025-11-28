@@ -1,0 +1,241 @@
+# Prometheus Recording Rules for SLA Calculation
+# INFRA-013.2 - Monitoring de disponibilité
+#
+# These rules pre-compute SLA metrics for fast dashboard queries and alerting
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dreamscape-sla-recording-rules
+  namespace: monitoring
+  labels:
+    app: dreamscape-prometheus
+    release: dreamscape-monitoring
+spec:
+  groups:
+  - name: dreamscape.sla.availability
+    interval: 30s
+    rules:
+    # Service availability (1 = healthy, 0 = unhealthy)
+    # Based on /health endpoint responses
+    - record: dreamscape:service:available
+      expr: |
+        (
+          probe_success{job=~"dreamscape-health-.*"}
+          or
+          up{job=~"dreamscape-health-.*"}
+        ) == 1
+
+    # Service availability by service name
+    - record: dreamscape:service:available:by_service
+      expr: |
+        max by (service, environment) (
+          dreamscape:service:available
+        )
+
+    # Uptime ratio over last hour (percentage)
+    - record: dreamscape:service:uptime_1h
+      expr: |
+        avg_over_time(dreamscape:service:available:by_service[1h]) * 100
+
+    # Uptime ratio over last 24 hours (percentage)
+    - record: dreamscape:service:uptime_24h
+      expr: |
+        avg_over_time(dreamscape:service:available:by_service[24h]) * 100
+
+    # Uptime ratio over last 7 days (percentage)
+    - record: dreamscape:service:uptime_7d
+      expr: |
+        avg_over_time(dreamscape:service:available:by_service[7d]) * 100
+
+    # Uptime ratio over last 30 days (percentage) - SLA target
+    - record: dreamscape:service:uptime_30d
+      expr: |
+        avg_over_time(dreamscape:service:available:by_service[30d]) * 100
+
+    # Total downtime in seconds over last 24 hours
+    - record: dreamscape:service:downtime_seconds_24h
+      expr: |
+        (1 - avg_over_time(dreamscape:service:available:by_service[24h])) * 86400
+
+    # Total downtime in seconds over last 30 days
+    - record: dreamscape:service:downtime_seconds_30d
+      expr: |
+        (1 - avg_over_time(dreamscape:service:available:by_service[30d])) * 2592000
+
+    # Number of downtime incidents in last 24 hours
+    - record: dreamscape:service:downtime_incidents_24h
+      expr: |
+        changes(dreamscape:service:available:by_service[24h]) / 2
+
+    # Number of downtime incidents in last 7 days
+    - record: dreamscape:service:downtime_incidents_7d
+      expr: |
+        changes(dreamscape:service:available:by_service[7d]) / 2
+
+  - name: dreamscape.sla.performance
+    interval: 30s
+    rules:
+    # Request success rate (non-5xx responses)
+    - record: dreamscape:service:request_success_rate
+      expr: |
+        (
+          sum by (service, environment) (rate(http_requests_total{status!~"5.."}[5m]))
+          /
+          sum by (service, environment) (rate(http_requests_total[5m]))
+        ) * 100
+
+    # Request success rate over 1 hour
+    - record: dreamscape:service:request_success_rate_1h
+      expr: |
+        avg_over_time(dreamscape:service:request_success_rate[1h])
+
+    # Request success rate over 24 hours
+    - record: dreamscape:service:request_success_rate_24h
+      expr: |
+        avg_over_time(dreamscape:service:request_success_rate[24h])
+
+    # Response time P95 (95th percentile)
+    - record: dreamscape:service:response_time_p95
+      expr: |
+        histogram_quantile(0.95,
+          sum by (service, environment, le) (
+            rate(http_request_duration_seconds_bucket[5m])
+          )
+        )
+
+    # Response time P99 (99th percentile)
+    - record: dreamscape:service:response_time_p99
+      expr: |
+        histogram_quantile(0.99,
+          sum by (service, environment, le) (
+            rate(http_request_duration_seconds_bucket[5m])
+          )
+        )
+
+  - name: dreamscape.sla.composite
+    interval: 60s
+    rules:
+    # Composite SLA score (availability + performance)
+    # SLA = (uptime_weight * uptime) + (success_rate_weight * success_rate)
+    # Weights: 70% uptime, 30% request success rate
+    - record: dreamscape:service:sla_score_24h
+      expr: |
+        (
+          (0.7 * dreamscape:service:uptime_24h) +
+          (0.3 * dreamscape:service:request_success_rate_24h)
+        )
+
+    - record: dreamscape:service:sla_score_30d
+      expr: |
+        (
+          (0.7 * dreamscape:service:uptime_30d) +
+          (0.3 * avg_over_time(dreamscape:service:request_success_rate[30d]))
+        )
+
+    # SLA breach indicator (1 = breach, 0 = OK)
+    # Target: 99.9% uptime (three nines)
+    - record: dreamscape:service:sla_breach_999
+      expr: |
+        dreamscape:service:uptime_30d < 99.9
+
+    # SLA breach indicator for 99.5% (two nines five)
+    - record: dreamscape:service:sla_breach_995
+      expr: |
+        dreamscape:service:uptime_30d < 99.5
+
+  - name: dreamscape.sla.mttr_mtbf
+    interval: 60s
+    rules:
+    # Mean Time To Recovery (MTTR) - average downtime duration
+    # Calculated as: total downtime / number of incidents
+    - record: dreamscape:service:mttr_seconds_24h
+      expr: |
+        (
+          dreamscape:service:downtime_seconds_24h
+          /
+          (dreamscape:service:downtime_incidents_24h + 1)
+        )
+
+    - record: dreamscape:service:mttr_seconds_7d
+      expr: |
+        (
+          (1 - avg_over_time(dreamscape:service:available:by_service[7d])) * 604800
+          /
+          (dreamscape:service:downtime_incidents_7d + 1)
+        )
+
+    # Mean Time Between Failures (MTBF)
+    # Calculated as: uptime / number of incidents
+    - record: dreamscape:service:mtbf_hours_7d
+      expr: |
+        (
+          avg_over_time(dreamscape:service:available:by_service[7d]) * 168
+          /
+          (dreamscape:service:downtime_incidents_7d + 1)
+        )
+
+    - record: dreamscape:service:mtbf_hours_30d
+      expr: |
+        (
+          avg_over_time(dreamscape:service:available:by_service[30d]) * 720
+          /
+          (changes(dreamscape:service:available:by_service[30d]) / 2 + 1)
+        )
+
+  - name: dreamscape.sla.dependencies
+    interval: 30s
+    rules:
+    # Database availability
+    - record: dreamscape:dependency:postgresql_available
+      expr: |
+        pg_up == 1
+
+    - record: dreamscape:dependency:mongodb_available
+      expr: |
+        mongodb_up == 1
+
+    - record: dreamscape:dependency:redis_available
+      expr: |
+        redis_up == 1
+
+    # Overall dependency health score
+    - record: dreamscape:dependency:health_score
+      expr: |
+        (
+          count(dreamscape:dependency:postgresql_available == 1) +
+          count(dreamscape:dependency:mongodb_available == 1) +
+          count(dreamscape:dependency:redis_available == 1)
+        ) / (
+          count(dreamscape:dependency:postgresql_available) +
+          count(dreamscape:dependency:mongodb_available) +
+          count(dreamscape:dependency:redis_available)
+        ) * 100
+
+  - name: dreamscape.sla.health_status
+    interval: 15s
+    rules:
+    # Service health status from /health endpoint
+    # Converts JSON response to metric
+    - record: dreamscape:service:health_status
+      expr: |
+        up{job=~"dreamscape-health-.*"} == 1
+
+    # Count of healthy services
+    - record: dreamscape:services:healthy_count
+      expr: |
+        count(dreamscape:service:health_status == 1)
+
+    # Count of unhealthy services
+    - record: dreamscape:services:unhealthy_count
+      expr: |
+        count(dreamscape:service:health_status == 0 or absent(dreamscape:service:health_status))
+
+    # Percentage of healthy services
+    - record: dreamscape:services:healthy_percentage
+      expr: |
+        (
+          dreamscape:services:healthy_count
+          /
+          (dreamscape:services:healthy_count + dreamscape:services:unhealthy_count)
+        ) * 100
