@@ -1,0 +1,95 @@
+# DreamScape Core Pod - Development Build
+# NGINX + Auth Service + User Service
+# Architecture Hybride: 6-repos → 3-Big-Pods
+# DR-328: Hot reload enabled for local development
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    curl \
+    bash \
+    git \
+    python3 \
+    make \
+    g++ \
+    openssl
+
+# Create application directories
+RUN mkdir -p /app/auth /app/user /var/log/supervisor /var/log/nginx
+
+# Set working directory
+WORKDIR /app
+
+# Install nodemon globally for hot reload
+RUN npm install -g nodemon typescript ts-node
+
+# Copy package files for both services (will be overridden by volume mounts)
+# These are just placeholders for initial build
+RUN echo '{"name":"auth-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/auth/package.json
+RUN echo '{"name":"user-service","version":"1.0.0","scripts":{"dev":"nodemon --watch src --exec ts-node src/index.ts"},"dependencies":{"express":"^4.18.0"}}' > /app/user/package.json
+
+# Install dependencies (will be overridden, but needed for build)
+RUN cd /app/auth && npm install --silent || true
+RUN cd /app/user && npm install --silent || true
+
+# Copy NGINX configuration
+COPY nginx.dev.conf /etc/nginx/nginx.conf
+
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisord.conf
+
+# Create startup script
+RUN cat > /start.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+echo "🚀 Starting DreamScape Core Pod (Development)"
+
+# Install/update dependencies if package.json changed
+if [ -f /app/auth/package.json ]; then
+    echo "📦 Installing Auth Service dependencies..."
+    cd /app/auth && npm install --silent || {
+        echo "❌ Failed to install auth dependencies"
+        exit 1
+    }
+fi
+
+if [ -f /app/user/package.json ]; then
+    echo "📦 Installing User Service dependencies..."
+    cd /app/user && npm install --silent || {
+        echo "❌ Failed to install user dependencies"
+        exit 1
+    }
+fi
+
+# Run database migrations
+echo "🔄 Running database migrations..."
+if [ -f /app/auth/package.json ] && grep -q "migrate" /app/auth/package.json 2>/dev/null; then
+    cd /app/auth && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for auth service"
+fi
+
+if [ -f /app/user/package.json ] && grep -q "migrate" /app/user/package.json 2>/dev/null; then
+    cd /app/user && npm run migrate 2>/dev/null || echo "⚠️  No migrations found for user service"
+fi
+
+# Start supervisor (manages NGINX + Auth + User services)
+echo "✅ Starting services with Supervisor..."
+exec /usr/bin/supervisord -c /etc/supervisord.conf
+EOF
+
+RUN chmod +x /start.sh
+
+# Expose ports
+EXPOSE 80 443 3001 3002 9229 9230
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Start services
+RUN chmod +x /start.sh
+RUN dos2unix /start.sh 2>/dev/null || sed -i 's/\r$//' /start.sh
+CMD ["/start.sh"]

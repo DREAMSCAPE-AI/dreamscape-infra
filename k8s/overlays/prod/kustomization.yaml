@@ -47,9 +47,10 @@ replicas:
 - name: voyage-service
   count: 3
 
-commonLabels:
-  environment: production
-  version: main
+labels:
+- pairs:
+    environment: production
+    version: main
 
 patches:
 - target:
