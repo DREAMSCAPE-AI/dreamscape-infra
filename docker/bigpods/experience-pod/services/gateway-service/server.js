@@ -8,13 +8,15 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const { routeLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 const PORT = process.env.PORT || 3007;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'gateway-service';
 const CORE_POD_URL = process.env.CORE_POD_URL || 'http://core-pod:3000';
 const BUSINESS_POD_URL = process.env.BUSINESS_POD_URL || 'http://business-pod:3001';
+const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS) || 30000;
+let server;
 
 // Middleware
 app.use(cors({
@@ -25,17 +27,8 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
-  message: {
-    success: false,
-    error: 'Too many requests from this IP, please try again later.',
-    retry_after: '15 minutes'
-  }
-});
-app.use(limiter);
+// Global rate limiting middleware
+app.use(routeLimiter('global'));
 
 // Request logging
 app.use((req, res, next) => {
@@ -79,78 +72,111 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Core Pod proxy (Auth, Users)
-app.use('/api/auth', createProxyMiddleware({
-  target: CORE_POD_URL,
+const createProxy = (label, target, unavailableMessage, customTimeoutMs) => createProxyMiddleware({
+  target,
   changeOrigin: true,
-  timeout: 30000,
+  timeout: customTimeoutMs || PROXY_TIMEOUT_MS,
+  proxyTimeout: customTimeoutMs || PROXY_TIMEOUT_MS,
   onError: (err, req, res) => {
-    console.error('Core Pod proxy error:', err.message);
+    console.error(`${label} proxy error:`, err.message);
     res.status(503).json({
       success: false,
-      error: 'Core Pod unavailable',
-      message: 'Authentication service is temporarily unavailable'
+      error: `${label} unavailable`,
+      message: unavailableMessage
     });
   }
-}));
+});
 
-app.use('/api/users', createProxyMiddleware({
-  target: CORE_POD_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  onError: (err, req, res) => {
-    console.error('Core Pod proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'Core Pod unavailable',
-      message: 'User service is temporarily unavailable'
+const registerProxyRoute = ({ path, methods, limiterKey, proxyMiddleware }) => {
+  const normalizedMethods = Array.isArray(methods) ? methods : [];
+
+  if (normalizedMethods.length) {
+    normalizedMethods.forEach((method) => {
+      const methodName = method.toLowerCase();
+      if (typeof app[methodName] !== 'function') {
+        throw new Error(`Unsupported HTTP method "${method}" for ${path}`);
+      }
+
+      app[methodName](path, routeLimiter(limiterKey), proxyMiddleware);
     });
+    return;
   }
-}));
+
+  app.use(path, routeLimiter(limiterKey), proxyMiddleware);
+};
+
+const corePodProxy = createProxy(
+  'Core Pod',
+  CORE_POD_URL,
+  'Authentication or user services are temporarily unavailable'
+);
+
+const businessPodProxy = createProxy(
+  'Business Pod',
+  BUSINESS_POD_URL,
+  'Experience services are temporarily unavailable',
+  60000
+);
+
+const panoramaProxy = createProxy(
+  'VR Service',
+  process.env.PANORAMA_SERVICE_URL || 'http://localhost:3006',
+  'VR content service is temporarily unavailable'
+);
+
+// Core Pod proxy (Auth, Users)
+registerProxyRoute({
+  path: '/api/auth/login',
+  methods: ['post'],
+  limiterKey: 'auth.login',
+  proxyMiddleware: corePodProxy
+});
+
+registerProxyRoute({
+  path: '/api/auth/register',
+  methods: ['post'],
+  limiterKey: 'auth.register',
+  proxyMiddleware: corePodProxy
+});
+
+registerProxyRoute({
+  path: '/api/auth/refresh',
+  methods: ['post'],
+  limiterKey: 'auth.refresh',
+  proxyMiddleware: corePodProxy
+});
+
+registerProxyRoute({
+  path: '/api/auth',
+  limiterKey: 'auth.default',
+  proxyMiddleware: corePodProxy
+});
+
+registerProxyRoute({
+  path: '/api/users',
+  limiterKey: 'users.default',
+  proxyMiddleware: corePodProxy
+});
 
 // Business Pod proxy (Voyages, AI)
-app.use('/api/voyages', createProxyMiddleware({
-  target: BUSINESS_POD_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  onError: (err, req, res) => {
-    console.error('Business Pod proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'Business Pod unavailable',
-      message: 'Voyage service is temporarily unavailable'
-    });
-  }
-}));
+registerProxyRoute({
+  path: '/api/voyages',
+  limiterKey: 'voyages.default',
+  proxyMiddleware: businessPodProxy
+});
 
-app.use('/api/ai', createProxyMiddleware({
-  target: BUSINESS_POD_URL,
-  changeOrigin: true,
-  timeout: 60000, // AI requests can take longer
-  onError: (err, req, res) => {
-    console.error('Business Pod AI proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'AI Service unavailable',
-      message: 'AI service is temporarily unavailable'
-    });
-  }
-}));
+registerProxyRoute({
+  path: '/api/ai',
+  limiterKey: 'ai.default',
+  proxyMiddleware: businessPodProxy
+});
 
 // Local VR API (handled by panorama service)
-app.use('/api/vr', createProxyMiddleware({
-  target: 'http://localhost:3006',
-  changeOrigin: true,
-  timeout: 30000,
-  onError: (err, req, res) => {
-    console.error('Panorama service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'VR Service unavailable',
-      message: 'VR content service is temporarily unavailable'
-    });
-  }
-}));
+registerProxyRoute({
+  path: '/api/vr',
+  limiterKey: 'vr.default',
+  proxyMiddleware: panoramaProxy
+});
 
 // Status endpoint
 app.get('/status', (req, res) => {
@@ -240,35 +266,47 @@ app.use('*', (req, res) => {
   });
 });
 
-// Graceful shutdown handling
-process.on('SIGTERM', () => {
-  console.log('🚀 Gateway Service received SIGTERM, shutting down gracefully...');
+const startServer = () => {
+  if (server) {
+    return server;
+  }
+
+  server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`?YOY DreamScape Gateway Service started`);
+    console.log(`?Ys? Service: ${SERVICE_NAME}`);
+    console.log(`?Y"- Port: ${PORT}`);
+    console.log(`?YZ? Core Pod: ${CORE_POD_URL}`);
+    console.log(`?Y'? Business Pod: ${BUSINESS_POD_URL}`);
+    console.log(`?Y? Started at: ${new Date().toISOString()}`);
+    console.log(`?Y"< Health check: http://localhost:${PORT}/health`);
+  });
+
+  server.on('error', (error) => {
+    console.error('?Ys? Gateway Service failed to start:', error);
+    process.exit(1);
+  });
+
+  return server;
+};
+
+const shutdown = (signal) => {
+  console.log(`?Ys? Gateway Service received ${signal}, shutting down gracefully...`);
+  if (!server) {
+    process.exit(0);
+    return;
+  }
+
   server.close(() => {
-    console.log('🚀 Gateway Service stopped');
+    console.log('?Ys? Gateway Service stopped');
     process.exit(0);
   });
-});
+};
 
-process.on('SIGINT', () => {
-  console.log('🚀 Gateway Service received SIGINT, shutting down gracefully...');
-  server.close(() => {
-    console.log('🚀 Gateway Service stopped');
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
-// Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🌟 DreamScape Gateway Service started`);
-  console.log(`🚀 Service: ${SERVICE_NAME}`);
-  console.log(`🔗 Port: ${PORT}`);
-  console.log(`🎯 Core Pod: ${CORE_POD_URL}`);
-  console.log(`💼 Business Pod: ${BUSINESS_POD_URL}`);
-  console.log(`🕐 Started at: ${new Date().toISOString()}`);
-  console.log(`📋 Health check: http://localhost:${PORT}/health`);
-});
+if (require.main === module) {
+  startServer();
+}
 
-server.on('error', (error) => {
-  console.error('🚀 Gateway Service failed to start:', error);
-  process.exit(1);
-});
+module.exports = { app, startServer };

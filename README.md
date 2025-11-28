@@ -103,6 +103,12 @@ Infrastructure Partagée
 └── 🌐 Docker Network                     # Communication sécurisée
 ```
 
+### ❗️ **Gateway Rate Limiting - INFRA-011.1**
+- **Middleware d?di?** dans `docker/bigpods/experience-pod/services/gateway-service/middleware/rateLimiter.js` (bas? sur `express-rate-limit`) appliqu? avant chaque proxy (`/api/auth/*`, `/api/users`, `/api/voyages`, `/api/ai`, `/api/vr`).
+- **Configuration par endpoint** centralis?e (`config/rateLimit.js`) avec overrides par variables d'environnement (ex: `RATE_LIMIT_AUTH_LOGIN_MAX`, `RATE_LIMIT_VR_WINDOW_MS`).
+- **Headers standards** `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`, `RateLimit-Policy` ajout?s pour l'observabilit? et l'int?gration monitoring.
+- **Tests Jest/Supertest** (`npm test` dans le service) couvrant la config et les sc?narios d'int?gration. Voir `RATE_LIMITING.md` pour la matrice compl?te.
+
 ### Déploiement Kubernetes
 ```bash
 # Déploiement k3s
