@@ -73,7 +73,7 @@ jobs:
             EVENT_TYPE="${{ github.event.action }}"
           else
             SOURCE_REPO="${{ inputs.source_repo }}"
-            SOURCE_REF="manual"
+            SOURCE_REF="main"
             SOURCE_SHA="${{ inputs.image_tag }}"
             COMPONENT="${{ inputs.component }}"
             ENVIRONMENT="${{ inputs.environment }}"
