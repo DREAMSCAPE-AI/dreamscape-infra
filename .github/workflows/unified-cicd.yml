@@ -249,11 +249,29 @@ jobs:
           repository: DREAMSCAPE-AI/dreamscape-tests
           token: ${{ secrets.DISPATCH_TOKEN }}
 
-      - name: Setup Node.js
+      - name: Check for package-lock.json
+        id: check-lockfile
+        run: |
+          if [ -f "package-lock.json" ]; then
+            echo "has_lockfile=true" >> $GITHUB_OUTPUT
+            echo "✅ package-lock.json found"
+          else
+            echo "has_lockfile=false" >> $GITHUB_OUTPUT
+            echo "⚠️ package-lock.json not found, npm cache will be disabled"
+          fi
+
+      - name: Setup Node.js (with cache)
+        if: steps.check-lockfile.outputs.has_lockfile == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
+
+      - name: Setup Node.js (without cache)
+        if: steps.check-lockfile.outputs.has_lockfile == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
 
       - name: Install dependencies
         run: npm ci
