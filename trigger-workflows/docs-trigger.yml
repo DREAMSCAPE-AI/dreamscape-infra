@@ -1,0 +1,241 @@
+# File to be placed in: dreamscape-docs/.github/workflows/trigger-central-cicd.yml
+
+name: Trigger Central CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, feature/**, docs/**]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+env:
+  CENTRAL_REPO: DREAMSCAPE-AI/dreamscape-infra
+
+jobs:
+  trigger-central-pipeline:
+    name: Trigger Central CI/CD
+    runs-on: ubuntu-latest
+    # Skip on draft PRs unless ready for review
+    if: github.event.pull_request.draft != true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed documentation
+        id: changes
+        run: |
+          CHANGED_DOCS=""
+          
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Get changed files in PR
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          else
+            # Get changed files in push
+            if [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+            else
+              # First push to branch, check last 10 commits
+              CHANGED_FILES=$(git diff --name-only HEAD~10..HEAD 2>/dev/null || git ls-files)
+            fi
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Detect which documentation sections were changed
+          DOC_TYPES=()
+          
+          if echo "$CHANGED_FILES" | grep -qE "^(api/|swagger/|openapi/)"; then
+            DOC_TYPES+=("api")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^(architecture/|design/)"; then
+            DOC_TYPES+=("architecture")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^(deployment/|infrastructure/)"; then
+            DOC_TYPES+=("deployment")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^(user/|guides/|tutorials/)"; then
+            DOC_TYPES+=("user-guides")
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^(dev/|development/|contributing/)"; then
+            DOC_TYPES+=("development")
+          fi
+          
+          # Join array elements with comma
+          if [[ ${#DOC_TYPES[@]} -gt 0 ]]; then
+            CHANGED_DOCS=$(IFS=','; echo "${DOC_TYPES[*]}")
+          else
+            # If files changed but no specific doc type detected, mark as general docs
+            if [[ -n "$CHANGED_FILES" ]]; then
+              CHANGED_DOCS="general"
+            fi
+          fi
+          
+          echo "changed_docs=${CHANGED_DOCS}" >> $GITHUB_OUTPUT
+          echo "Detected changed documentation: $CHANGED_DOCS"
+
+      - name: Determine if deployment docs changed
+        id: deployment_impact
+        run: |
+          DEPLOYMENT_IMPACT="false"
+          
+          # Check if deployment-related docs changed (might affect CI/CD)
+          if echo "${{ steps.changes.outputs.changed_docs }}" | grep -qE "(deployment|infrastructure|api)"; then
+            DEPLOYMENT_IMPACT="true"
+          fi
+          
+          echo "deployment_impact=${DEPLOYMENT_IMPACT}" >> $GITHUB_OUTPUT
+          echo "Deployment impact: $DEPLOYMENT_IMPACT"
+
+      - name: Trigger central CI/CD pipeline
+        if: steps.changes.outputs.changed_docs != '' && steps.deployment_impact.outputs.deployment_impact == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DISPATCH_TOKEN }}
+          script: |
+            const eventType = 'docs-changed';
+            const payload = {
+              source_repo: context.repo.owner + '/' + context.repo.repo,
+              ref: context.ref,
+              sha: context.sha,
+              component: '${{ steps.changes.outputs.changed_docs }}',
+              environment: 'staging', // Documentation changes go to staging
+              trigger_type: '${{ github.event_name }}',
+              actor: context.actor,
+              workflow_run_id: context.runId,
+              deployment_impact: '${{ steps.deployment_impact.outputs.deployment_impact }}'
+            };
+            
+            console.log('Triggering central pipeline with payload:', payload);
+            
+            try {
+              const response = await github.rest.repos.createDispatchEvent({
+                owner: 'DREAMSCAPE-AI',
+                repo: 'dreamscape-infra',
+                event_type: eventType,
+                client_payload: payload
+              });
+              
+              console.log('✅ Central pipeline triggered successfully');
+              
+              // Update commit status
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                state: 'pending',
+                target_url: `https://github.com/DREAMSCAPE-AI/dreamscape-infra/actions`,
+                description: 'Central CI/CD pipeline triggered for docs',
+                context: 'ci/central-pipeline'
+              });
+              
+            } catch (error) {
+              console.error('❌ Failed to trigger central pipeline:', error);
+              
+              // Update commit status with failure
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                state: 'error',
+                description: 'Failed to trigger central CI/CD pipeline',
+                context: 'ci/central-pipeline'
+              });
+              
+              throw error;
+            }
+
+  local-validation:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for doc tools)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate documentation
+        run: |
+          echo "🔍 Validating documentation..."
+          
+          # Check for common documentation files
+          if [ -f "README.md" ]; then
+            echo "✅ README.md found"
+            
+            # Basic markdown validation
+            if grep -q "# " README.md; then
+              echo "✅ README has proper headings"
+            fi
+          fi
+          
+          # Check for documentation structure
+          for doc_type in api architecture deployment user dev; do
+            if [ -d "$doc_type" ]; then
+              echo "✅ $doc_type documentation directory found"
+              
+              # Count markdown files
+              MD_COUNT=$(find "$doc_type" -name "*.md" | wc -l)
+              echo "📊 Found $MD_COUNT markdown files in $doc_type"
+            fi
+          done
+          
+          # Check for OpenAPI/Swagger files
+          if find . -name "*.yaml" -o -name "*.yml" -o -name "*.json" | grep -qE "(swagger|openapi|api)"; then
+            echo "✅ API documentation files found"
+          fi
+          
+          # Check for package.json (if doc site is built with Node.js)
+          if [ -f "package.json" ]; then
+            echo "✅ package.json found - checking for doc build scripts"
+            
+            if grep -q '"build"' package.json; then
+              echo "✅ Build script found"
+            fi
+            
+            if grep -q '"serve"' package.json; then
+              echo "✅ Serve script found"
+            fi
+          fi
+          
+          echo "✅ Documentation validation completed"
+
+  summary:
+    name: Trigger Summary
+    runs-on: ubuntu-latest
+    needs: [trigger-central-pipeline, local-validation]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "📊 DOCS TRIGGER SUMMARY"
+          echo "======================"
+          echo "Repository: ${{ github.repository }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo ""
+          echo "Results:"
+          echo "- Central Pipeline Trigger: ${{ needs.trigger-central-pipeline.result }}"
+          echo "- Documentation Validation: ${{ needs.local-validation.result }}"
+          
+          if [[ "${{ needs.trigger-central-pipeline.result }}" == "success" ]]; then
+            echo "✅ Central CI/CD pipeline successfully triggered"
+            echo "🔗 Check progress: https://github.com/DREAMSCAPE-AI/dreamscape-infra/actions"
+          elif [[ "${{ needs.trigger-central-pipeline.result }}" == "skipped" ]]; then
+            echo "ℹ️ Central pipeline not triggered (documentation changes don't require deployment)"
+          else
+            echo "❌ Failed to trigger central CI/CD pipeline"
+          fi

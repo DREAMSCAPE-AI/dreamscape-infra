@@ -1,0 +1,406 @@
+version: '3.8'
+
+# DreamScape Big Pods Development Environment
+# Architecture Hybride: 6-repos → 3-Big-Pods
+# DR-328: Local development with hot reload
+
+services:
+  # ===============================================
+  # Core Pod - NGINX + Auth + User Services
+  # ===============================================
+  core-pod:
+    build:
+      context: ./bigpods/core-pod/
+      dockerfile: Dockerfile.dev
+    container_name: dreamscape-core-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    ports:
+      - "80:80"         # NGINX Gateway
+      - "443:443"       # NGINX SSL
+      - "3001:3001"     # Auth Service (debug)
+      - "3002:3002"     # User Service (debug)
+      - "9229:9229"     # Node.js inspector (auth)
+      - "9230:9230"     # Node.js inspector (user)
+    volumes:
+      # Mount service code for hot reload
+      - ../../dreamscape-services/auth:/app/auth:delegated
+      - ../../dreamscape-services/user:/app/user:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/auth/node_modules
+      - /app/user/node_modules
+      # Mount NGINX config
+      - ./bigpods/core-pod/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      # Logs
+      - core-logs:/var/log/supervisor
+      - core-nginx-logs:/var/log/nginx
+    environment:
+      - NODE_ENV=development
+      - HOT_RELOAD=true
+      - LOG_LEVEL=debug
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dreamscape_dev
+      - DB_USER=dev
+      - DB_PASSWORD=dev123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===============================================
+  # Business Pod - Voyage + AI + Payment Services
+  # ===============================================
+  business-pod:
+    build:
+      context: ./bigpods/business-pod/
+      dockerfile: Dockerfile.dev
+    container_name: dreamscape-business-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    ports:
+      - "3003:3003"     # Voyage Service
+      - "3004:3004"     # AI Service
+      - "3005:3005"     # Payment Service
+      - "9231:9231"     # Node.js inspector (voyage)
+      - "9232:9232"     # Node.js inspector (ai)
+      - "9233:9233"     # Node.js inspector (payment)
+    volumes:
+      # Mount service code for hot reload
+      - ../../dreamscape-services/voyage:/app/voyage:delegated
+      - ../../dreamscape-services/ai:/app/ai:delegated
+      - ../../dreamscape-services/payment:/app/payment:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/voyage/node_modules
+      - /app/ai/node_modules
+      - /app/payment/node_modules
+      # Logs
+      - business-logs:/var/log/supervisor
+    environment:
+      - NODE_ENV=development
+      - HOT_RELOAD=true
+      - LOG_LEVEL=debug
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dreamscape_dev
+      - DB_USER=dev
+      - DB_PASSWORD=dev123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BROKERS=kafka:9092
+      # API Keys (test mode)
+      - AMADEUS_API_KEY=${AMADEUS_TEST_KEY:-test-key}
+      - AMADEUS_API_SECRET=${AMADEUS_TEST_SECRET:-test-secret}
+      - STRIPE_SECRET_KEY=${STRIPE_TEST_KEY:-sk_test_xxx}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-test-key}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
+      - S3_BUCKET=dreamscape-vr-assets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===============================================
+  # Experience Pod - Web Client + Panorama + Gateway
+  # ===============================================
+  experience-pod:
+    build:
+      context: ./bigpods/experience-pod/
+      dockerfile: Dockerfile.dev
+    container_name: dreamscape-experience-pod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    ports:
+      - "3000:80"       # Web Client (Vite dev server proxied via NGINX)
+      - "5173:5173"     # Vite HMR direct access
+      - "3006:3006"     # Panorama Service
+      - "4000:4000"     # Gateway Service
+      - "9234:9234"     # Node.js inspector (panorama)
+      - "9235:9235"     # Node.js inspector (gateway)
+    volumes:
+      # Mount frontend code for hot reload
+      - ../../dreamscape-frontend/web-client:/app/web:delegated
+      - ../../dreamscape-frontend/panorama:/app/panorama:delegated
+      - ../../dreamscape-frontend/gateway:/app/gateway:delegated
+      # Exclude node_modules from host (use container's own node_modules)
+      - /app/web/node_modules
+      - /app/panorama/node_modules
+      - /app/gateway/node_modules
+      # VR Assets
+      - vr-assets:/app/assets/vr
+      # Logs
+      - experience-logs:/var/log/supervisor
+    environment:
+      - NODE_ENV=development
+      - VITE_HMR=true
+      # Windows/macOS file watching support
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+      - VITE_API_URL=http://localhost/api/v1
+      - VITE_WS_URL=ws://localhost/ws
+      - GATEWAY_PORT=4000
+      - PANORAMA_PORT=3006
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - core-pod
+      - business-pod
+      - minio
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===============================================
+  # Infrastructure Services
+  # ===============================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: dreamscape-postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    environment:
+      POSTGRES_DB: dreamscape_dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev123
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../scripts/postgres-init-dev.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d dreamscape_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+
+  redis:
+    image: redis:7-alpine
+    container_name: dreamscape-redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: dreamscape-kafka
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    environment:
+      # KRaft mode (no Zookeeper)
+      KAFKA_ENABLE_KRAFT: 'true'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: '1'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      # Listeners
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      # Cluster
+      CLUSTER_ID: 'yn6kP4ohTr2ERKsuFCNSvg'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      # Performance tuning for dev
+      KAFKA_NUM_PARTITIONS: '3'
+      KAFKA_DEFAULT_REPLICATION_FACTOR: '1'
+      KAFKA_LOG_RETENTION_HOURS: '24'
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  minio:
+    image: minio/minio:latest
+    container_name: dreamscape-minio
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-dreamscape-dev}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-dreamscape-dev-secret}
+    ports:
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # Web Console
+    volumes:
+      - minio-data:/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+
+  # MinIO initialization - creates buckets
+  minio-init:
+    image: minio/mc:latest
+    container_name: dreamscape-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    environment:
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY};
+      mc mb myminio/dreamscape-vr-assets --ignore-existing;
+      mc mb myminio/dreamscape-user-uploads --ignore-existing;
+      mc mb myminio/dreamscape-ai-generations --ignore-existing;
+      mc anonymous set download myminio/dreamscape-vr-assets;
+      echo 'MinIO buckets initialized';
+      "
+
+# ===============================================
+# Volumes
+# ===============================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  kafka-data:
+    driver: local
+  minio-data:
+    driver: local
+  core-logs:
+    driver: local
+  core-nginx-logs:
+    driver: local
+  business-logs:
+    driver: local
+  experience-logs:
+    driver: local
+  vr-assets:
+    driver: local
+
+# ===============================================
+# Networks
+# ===============================================
+networks:
+  bigpods-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

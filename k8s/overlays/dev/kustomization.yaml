@@ -53,9 +53,10 @@ replicas:
 - name: voyage-service
   count: 1
 
-commonLabels:
-  environment: development
-  version: develop
+labels:
+- pairs:
+    environment: development
+    version: develop
 
 patches:
 - target:

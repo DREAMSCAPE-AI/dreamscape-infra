@@ -1,0 +1,235 @@
+# File to be placed in: dreamscape-frontend/.github/workflows/trigger-central-cicd.yml
+
+name: Trigger Central CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, feature/**, bugfix/**, hotfix/**]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+env:
+  CENTRAL_REPO: DREAMSCAPE-AI/dreamscape-infra
+
+jobs:
+  trigger-central-pipeline:
+    name: Trigger Central CI/CD
+    runs-on: ubuntu-latest
+    # Skip on draft PRs unless ready for review
+    if: github.event.pull_request.draft != true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed components
+        id: changes
+        run: |
+          CHANGED_COMPONENTS=""
+          
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Get changed files in PR
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          else
+            # Get changed files in push
+            if [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+            else
+              # First push to branch, check last 10 commits
+              CHANGED_FILES=$(git diff --name-only HEAD~10..HEAD 2>/dev/null || git ls-files)
+            fi
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Detect which frontend components were changed
+          for component in web-client panorama-service gateway admin-panel mobile-app; do
+            if echo "$CHANGED_FILES" | grep -q "^$component/"; then
+              if [[ -z "$CHANGED_COMPONENTS" ]]; then
+                CHANGED_COMPONENTS="$component"
+              else
+                CHANGED_COMPONENTS="$CHANGED_COMPONENTS,$component"
+              fi
+            fi
+          done
+          
+          # Check for shared/common changes that affect all components
+          if echo "$CHANGED_FILES" | grep -qE "^(shared/|common/|libs/|packages/)"; then
+            CHANGED_COMPONENTS="all"
+          fi
+          
+          # If no specific component changed, but there are changes, trigger all
+          if [[ -z "$CHANGED_COMPONENTS" ]] && [[ -n "$CHANGED_FILES" ]]; then
+            CHANGED_COMPONENTS="all"
+          fi
+          
+          echo "changed_components=${CHANGED_COMPONENTS}" >> $GITHUB_OUTPUT
+          echo "Detected changed components: $CHANGED_COMPONENTS"
+
+      - name: Determine environment
+        id: environment
+        run: |
+          ENVIRONMENT="dev"
+          
+          case "${{ github.ref }}" in
+            "refs/heads/main")
+              ENVIRONMENT="production"
+              ;;
+            "refs/heads/develop")
+              ENVIRONMENT="staging"
+              ;;
+            "refs/heads/release/"*)
+              ENVIRONMENT="staging"
+              ;;
+            *)
+              ENVIRONMENT="dev"
+              ;;
+          esac
+          
+          # For PRs, always use dev environment
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            ENVIRONMENT="dev"
+          fi
+          
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "Target environment: $ENVIRONMENT"
+
+      - name: Trigger central CI/CD pipeline
+        if: steps.changes.outputs.changed_components != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DISPATCH_TOKEN }}
+          script: |
+            const eventType = 'frontend-changed';
+            const payload = {
+              source_repo: context.repo.owner + '/' + context.repo.repo,
+              ref: context.ref,
+              sha: context.sha,
+              component: '${{ steps.changes.outputs.changed_components }}',
+              environment: '${{ steps.environment.outputs.environment }}',
+              trigger_type: '${{ github.event_name }}',
+              actor: context.actor,
+              workflow_run_id: context.runId
+            };
+            
+            console.log('Triggering central pipeline with payload:', payload);
+            
+            try {
+              const response = await github.rest.repos.createDispatchEvent({
+                owner: 'DREAMSCAPE-AI',
+                repo: 'dreamscape-infra',
+                event_type: eventType,
+                client_payload: payload
+              });
+              
+              console.log('✅ Central pipeline triggered successfully');
+              
+              // Update commit status
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                state: 'pending',
+                target_url: `https://github.com/DREAMSCAPE-AI/dreamscape-infra/actions`,
+                description: 'Central CI/CD pipeline triggered',
+                context: 'ci/central-pipeline'
+              });
+              
+            } catch (error) {
+              console.error('❌ Failed to trigger central pipeline:', error);
+              
+              // Update commit status with failure
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                state: 'error',
+                description: 'Failed to trigger central CI/CD pipeline',
+                context: 'ci/central-pipeline'
+              });
+              
+              throw error;
+            }
+
+  local-validation:
+    name: Local Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Basic validation
+        run: |
+          echo "🔍 Running basic validation for frontend components..."
+          
+          # Check if any frontend directories exist and validate basic structure
+          for component in web-client panorama-service gateway admin-panel mobile-app; do
+            if [ -d "$component" ]; then
+              echo "Validating $component..."
+              
+              if [ -f "$component/package.json" ]; then
+                echo "✅ package.json found for $component"
+                
+                # Quick lint check if lint script exists
+                cd "$component"
+                if npm run lint --if-present &>/dev/null; then
+                  echo "✅ Lint passed for $component"
+                else
+                  echo "⚠️ Lint issues in $component (non-blocking)"
+                fi
+                
+                # Check for build script
+                if grep -q '"build"' package.json; then
+                  echo "✅ Build script found for $component"
+                fi
+                
+                cd ..
+              else
+                echo "⚠️ No package.json found for $component"
+              fi
+              
+              # Check for Dockerfile
+              if [ -f "$component/Dockerfile" ]; then
+                echo "✅ Dockerfile found for $component"
+              fi
+            fi
+          done
+          
+          echo "✅ Local validation completed"
+
+  summary:
+    name: Trigger Summary
+    runs-on: ubuntu-latest
+    needs: [trigger-central-pipeline, local-validation]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "📊 FRONTEND TRIGGER SUMMARY"
+          echo "=========================="
+          echo "Repository: ${{ github.repository }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo ""
+          echo "Results:"
+          echo "- Central Pipeline Trigger: ${{ needs.trigger-central-pipeline.result }}"
+          echo "- Local Validation: ${{ needs.local-validation.result }}"
+          
+          if [[ "${{ needs.trigger-central-pipeline.result }}" == "success" ]]; then
+            echo "✅ Central CI/CD pipeline successfully triggered"
+            echo "🔗 Check progress: https://github.com/DREAMSCAPE-AI/dreamscape-infra/actions"
+          else
+            echo "❌ Failed to trigger central CI/CD pipeline"
+          fi

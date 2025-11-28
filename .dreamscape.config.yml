@@ -1,0 +1,189 @@
+# DreamScape Big Pods Configuration
+# Architecture: 6 repositories → 3 Big Pods deployment
+
+# Big Pods Architecture Configuration
+bigpods:
+  core:
+    name: "Core Pod"
+    description: "Authentication, User Management, Core Services"
+    services:
+      - auth
+      - user
+    ports:
+      - "80:80"      # NGINX
+      - "3001:3001"  # Auth Service
+      - "3002:3002"  # User Service
+    dependencies:
+      - mongodb
+      - redis
+    docker_compose: "docker-compose.core-pod.yml"
+
+  business:
+    name: "Business Pod"
+    description: "Business Logic, Payments, AI Services"
+    services:
+      - voyage
+      - payment
+      - ai
+    ports:
+      - "3003:3003"  # Voyage Service
+      - "3004:3004"  # Payment Service
+      - "3005:3005"  # AI Service
+    dependencies:
+      - postgresql
+      - redis
+    docker_compose: "docker-compose.business-pod.yml"
+
+  experience:
+    name: "Experience Pod"
+    description: "User Experience, VR/Panorama, Frontend"
+    services:
+      - panorama
+      - web-client
+      - gateway
+    ports:
+      - "3006:3006"  # Panorama Service
+      - "5173:5173"  # Web Client
+      - "3000:3000"  # Gateway
+    dependencies:
+      - redis
+    docker_compose: "docker-compose.experience-pod.yml"
+
+# Repository Configuration
+repositories:
+  dreamscape-services:
+    path: "../dreamscape-services"
+    type: "backend"
+    services:
+      - auth
+      - user
+      - voyage
+      - payment
+      - ai
+      - panorama
+    build_command: "npm run build"
+    test_command: "npm run test"
+
+  dreamscape-frontend:
+    path: "../dreamscape-frontend"
+    type: "frontend"
+    services:
+      - web-client
+      - gateway
+    build_command: "npm run build"
+    test_command: "npm run test"
+
+  dreamscape-tests:
+    path: "../dreamscape-tests"
+    type: "testing"
+    test_command: "npm run test:all"
+    coverage_command: "npm run test:coverage"
+
+  dreamscape-docs:
+    path: "../dreamscape-docs"
+    type: "documentation"
+
+  dreamscape-infra:
+    path: "."
+    type: "infrastructure"
+
+# Environment Configuration
+environments:
+  local:
+    name: "Local Development"
+    namespace: "local"
+    domain: "localhost"
+
+  staging:
+    name: "Staging Environment"
+    namespace: "staging"
+    domain: "staging.dreamscape.dev"
+
+  production:
+    name: "Production Environment"
+    namespace: "production"
+    domain: "dreamscape.com"
+
+# External Services Configuration
+external_services:
+  mongodb:
+    local_port: 27017
+    connection_string: "mongodb://admin:password123@mongodb:27017/dreamscape?authSource=admin"
+
+  postgresql:
+    local_port: 5432
+    connection_string: "postgresql://postgres:password123@postgresql:5432/dreamscape"
+
+  redis:
+    local_port: 6379
+    connection_string: "redis://redis:6379"
+
+# Build Configuration
+build:
+  docker:
+    cache_from:
+      - "dreamscape/base:latest"
+    build_args:
+      NODE_VERSION: "18-alpine"
+      PNPM_VERSION: "8.15.0"
+
+  smart_build:
+    enabled: true
+    change_detection:
+      - "**/*.ts"
+      - "**/*.js"
+      - "**/*.json"
+      - "**/Dockerfile"
+      - "**/docker-compose*.yml"
+
+# Monitoring Configuration
+monitoring:
+  healthcheck:
+    timeout: 30s
+    interval: 10s
+    retries: 3
+
+  metrics:
+    enabled: true
+    port: 9090
+
+  logging:
+    level: "info"
+    format: "json"
+    retention: "7d"
+
+# Security Configuration
+security:
+  secrets:
+    env_file: ".env.secrets"
+    vault_integration: false
+
+  network:
+    isolation: true
+    internal_communication: true
+
+# CI/CD Configuration
+cicd:
+  github_actions:
+    enabled: true
+    workflows_path: ".github/workflows"
+
+  notifications:
+    slack:
+      enabled: false
+      webhook_url: ""
+    teams:
+      enabled: false
+      webhook_url: ""
+
+# Development Configuration
+development:
+  hot_reload: true
+  debug_mode: false
+  auto_restart: true
+
+  prerequisites:
+    - docker
+    - docker-compose
+    - node
+    - npm
