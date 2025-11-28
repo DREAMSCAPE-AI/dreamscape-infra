@@ -1,0 +1,161 @@
+# Health Check Probes Configuration for DreamScape Services
+# INFRA-013.2 - Monitoring de disponibilité
+#
+# This configuration scrapes the /health endpoints created in INFRA-013.1
+# for uptime monitoring and SLA calculation
+
+scrape_configs:
+  # Health check probes for all DreamScape services
+  - job_name: 'dreamscape-health-auth'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /health
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: auth-service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: service
+        replacement: 'auth'
+      - target_label: __metrics_path__
+        replacement: /health
+
+  - job_name: 'dreamscape-health-user'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /health
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: user-service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: service
+        replacement: 'user'
+      - target_label: __metrics_path__
+        replacement: /health
+
+  - job_name: 'dreamscape-health-gateway'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /health
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: gateway-service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: service
+        replacement: 'gateway'
+      - target_label: __metrics_path__
+        replacement: /health
+
+  - job_name: 'dreamscape-health-voyage'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /health
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: voyage-service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: service
+        replacement: 'voyage'
+      - target_label: __metrics_path__
+        replacement: /health
+
+  - job_name: 'dreamscape-health-ai'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /health
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: ai-service
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: service
+        replacement: 'ai'
+      - target_label: __metrics_path__
+        replacement: /health
+
+  # Liveness probes (faster check interval for immediate failure detection)
+  - job_name: 'dreamscape-liveness'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    metrics_path: /health/live
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: (auth|user|gateway|voyage|ai)-service
+      - source_labels: [__meta_kubernetes_service_name]
+        regex: (.+)-service
+        target_label: service
+        replacement: '$1'
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: probe_type
+        replacement: 'liveness'
+
+  # Readiness probes
+  - job_name: 'dreamscape-readiness'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    metrics_path: /health/ready
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: (auth|user|gateway|voyage|ai)-service
+      - source_labels: [__meta_kubernetes_service_name]
+        regex: (.+)-service
+        target_label: service
+        replacement: '$1'
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: environment
+      - target_label: probe_type
+        replacement: 'readiness'

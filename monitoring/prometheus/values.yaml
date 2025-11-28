@@ -110,6 +110,24 @@ prometheus:
             regex: 'voyage_.*'
             target_label: service
             replacement: 'voyage'
+
+      - job_name: 'dreamscape-ai'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['dreamscape-dev', 'dreamscape-staging', 'dreamscape-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: ai-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'ai_.*'
+            target_label: service
+            replacement: 'ai'
     
     # Rule files
     ruleSelector:
