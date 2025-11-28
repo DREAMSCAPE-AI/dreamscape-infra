@@ -78,6 +78,15 @@ jobs:
             COMPONENT="${{ inputs.component }}"
             ENVIRONMENT="${{ inputs.environment }}"
             EVENT_TYPE="manual"
+
+            # For manual dispatch, if image_tag is "latest", fetch the actual SHA
+            if [[ "${SOURCE_SHA}" == "latest" ]]; then
+              echo "⚠️ Fetching latest SHA from ${SOURCE_REPO}/${SOURCE_REF}..."
+              SOURCE_SHA=$(curl -s -H "Authorization: token ${{ secrets.DISPATCH_TOKEN }}" \
+                "https://api.github.com/repos/${SOURCE_REPO}/commits/${SOURCE_REF}" | \
+                jq -r '.sha')
+              echo "✅ Using SHA: ${SOURCE_SHA}"
+            fi
           fi
 
           echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
