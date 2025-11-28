@@ -17,7 +17,7 @@ Ce repository contient l'ensemble des configurations d'infrastructure, des scrip
 ## Structure du repository
 
 ```
-dreamscape-infrastructure/
+dreamscape-infra/
 ├── terraform/                     # Configuration Terraform pour OCI
 │   ├── modules/                   # Modules Terraform réutilisables
 │   ├── environments/              # Configurations spécifiques aux environnements
@@ -65,8 +65,8 @@ Pour travailler avec ce repository, vous aurez besoin de :
 
 1. Clonez ce repository :
    ```bash
-   git clone https://github.com/dreamscape/dreamscape-infrastructure.git
-   cd dreamscape-infrastructure
+   git clone https://github.com/dreamscape/dreamscape-infra.git
+   cd dreamscape-infra
    ```
 
 2. Configurez vos identifiants OCI :
