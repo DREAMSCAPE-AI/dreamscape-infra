@@ -428,6 +428,7 @@ jobs:
         env:
           K3S_HOST: ${{ secrets.K3S_HOST }}
         run: |
+          mkdir -p ~/.kube
           ssh ubuntu@$K3S_HOST "sudo cat /etc/rancher/k3s/k3s.yaml" | \
             sed "s/127.0.0.1/$K3S_HOST/g" > ~/.kube/config
           chmod 600 ~/.kube/config
