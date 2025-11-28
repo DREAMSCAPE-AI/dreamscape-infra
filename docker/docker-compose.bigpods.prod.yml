@@ -1,0 +1,569 @@
+# ============================================================================
+# DreamScape Big Pods - Production Docker Compose
+# Architecture Hybride: 6 repos → 3 Big Pods
+# US-INFRA-014: Production-ready configuration (local testing)
+# ============================================================================
+
+# Note: 'version' attribute removed (obsolete in Docker Compose v2+)
+
+# ============================================================================
+# Services
+# ============================================================================
+services:
+
+  # ==========================================================================
+  # Core Pod - NGINX + Auth + User
+  # ==========================================================================
+  core-pod:
+    build:
+      context: ../../
+      dockerfile: dreamscape-infra/docker/bigpods/core-pod/Dockerfile.prod
+    container_name: dreamscape-core-pod
+    restart: unless-stopped
+    ports:
+      - "8081:80"      # NGINX reverse proxy
+      - "3001:3001"    # Auth Service (direct access)
+      - "3002:3002"    # User Service (direct access)
+      - "9091:9090"    # Metrics
+    environment:
+      # Node.js environment
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+      # Database connections
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dreamscape_prod
+      - DB_USER=dreamscape_user
+      - DB_PASSWORD=dreamscape_prod_password_123
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis_prod_password_123
+
+      # Kafka
+      - KAFKA_BROKERS=kafka:9092
+
+      # Security
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production-big-pods
+      - JWT_REFRESH_SECRET=your-super-secret-jwt-refresh-key-change-in-production-big-pods
+      - SESSION_SECRET=your-super-secret-session-key-change-in-production
+
+      # Monitoring
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9090
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "com.dreamscape.pod=core"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # Business Pod - Voyage + AI + Payment
+  # ==========================================================================
+  business-pod:
+    build:
+      context: ../../
+      dockerfile: dreamscape-infra/docker/bigpods/business-pod/Dockerfile.prod
+    container_name: dreamscape-business-pod
+    restart: unless-stopped
+    ports:
+      - "3003:3003"    # Voyage Service
+      - "3004:3004"    # AI Service
+      - "3005:3005"    # Payment Service
+      - "9097:9090"    # Metrics (changed from 9092 to avoid conflict)
+    environment:
+      # Node.js environment
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+      # Database connections
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dreamscape_prod
+      - DB_USER=dreamscape_user
+      - DB_PASSWORD=dreamscape_prod_password_123
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis_prod_password_123
+
+      # Kafka
+      - KAFKA_BROKERS=kafka:9092
+
+      # S3/MinIO Storage
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=dreamscape-vr-assets
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin123
+
+      # API Keys (change in production)
+      - AMADEUS_API_KEY=your-amadeus-api-key
+      - AMADEUS_API_SECRET=your-amadeus-api-secret
+      - STRIPE_SECRET_KEY=sk_test_your-stripe-secret-key
+      - OPENAI_API_KEY=sk-your-openai-api-key
+
+      # Monitoring
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9090
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "com.dreamscape.pod=business"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # Experience Pod - Web + Panorama + Gateway
+  # ==========================================================================
+  experience-pod:
+    build:
+      context: ../../
+      dockerfile: dreamscape-infra/docker/bigpods/experience-pod/Dockerfile.prod
+    container_name: dreamscape-experience-pod
+    restart: unless-stopped
+    ports:
+      - "8080:80"      # Web Frontend (NGINX)
+      - "3006:3006"    # Panorama Service
+      - "4000:4000"    # Gateway Service
+      - "9093:9090"    # Metrics
+    environment:
+      # Node.js environment
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis_prod_password_123
+
+      # S3/MinIO Storage
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=dreamscape-vr-assets
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin123
+
+      # Backend services URLs
+      - AUTH_SERVICE_URL=http://core-pod:3001
+      - USER_SERVICE_URL=http://core-pod:3002
+      - VOYAGE_SERVICE_URL=http://business-pod:3003
+      - AI_SERVICE_URL=http://business-pod:3004
+      - PAYMENT_SERVICE_URL=http://business-pod:3005
+
+      # Monitoring
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9090
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "com.dreamscape.pod=experience"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # PostgreSQL Database
+  # ==========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dreamscape-postgres-prod
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: dreamscape_prod
+      POSTGRES_USER: dreamscape_user
+      POSTGRES_PASSWORD: dreamscape_prod_password_123
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - bigpods-network
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=500"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dreamscape_user -d dreamscape_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.dreamscape.service=postgres"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # Redis Cache
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: dreamscape-redis-prod
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: >
+      redis-server
+      --requirepass redis_prod_password_123
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "redis_prod_password_123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "com.dreamscape.service=redis"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # Kafka - Event Streaming
+  # ==========================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: dreamscape-kafka-prod
+    restart: unless-stopped
+    ports:
+      - "9095:9092"
+      - "9096:9093"
+    environment:
+      KAFKA_ENABLE_KRAFT: 'true'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: '1'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      CLUSTER_ID: 'yn6kP4ohTr2ERKsuFCNSvg'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      KAFKA_NUM_PARTITIONS: '3'
+      KAFKA_DEFAULT_REPLICATION_FACTOR: '1'
+      KAFKA_LOG_RETENTION_HOURS: '168'
+      KAFKA_LOG_RETENTION_BYTES: '1073741824'
+    volumes:
+      - kafka_prod_data:/var/lib/kafka/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.dreamscape.service=kafka"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # MinIO - S3-Compatible Object Storage
+  # ==========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: dreamscape-minio-prod
+    restart: unless-stopped
+    ports:
+      - "9000:9000"    # API
+      - "9001:9001"    # Console
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    volumes:
+      - minio_prod_data:/data
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.dreamscape.service=minio"
+      - "com.dreamscape.environment=production"
+
+  # ==========================================================================
+  # Monitoring Stack
+  # ==========================================================================
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dreamscape-prometheus-prod
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_prod_data:/prometheus
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.dreamscape.service=prometheus"
+      - "com.dreamscape.environment=production"
+
+  # Grafana - Metrics Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dreamscape-grafana-prod
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_prod_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.dreamscape.service=grafana"
+      - "com.dreamscape.environment=production"
+
+  # Loki - Log Aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: dreamscape-loki-prod
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
+      - loki_prod_data:/loki
+    networks:
+      - bigpods-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.dreamscape.service=loki"
+      - "com.dreamscape.environment=production"
+
+  # Promtail - Log Shipper
+  promtail:
+    image: grafana/promtail:latest
+    container_name: dreamscape-promtail-prod
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./monitoring/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - bigpods-network
+    depends_on:
+      - loki
+    labels:
+      - "com.dreamscape.service=promtail"
+      - "com.dreamscape.environment=production"
+
+  # AlertManager - Alert Management
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: dreamscape-alertmanager-prod
+    restart: unless-stopped
+    ports:
+      - "9094:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_prod_data:/alertmanager
+    networks:
+      - bigpods-network
+    labels:
+      - "com.dreamscape.service=alertmanager"
+      - "com.dreamscape.environment=production"
+
+  # Jaeger - Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: dreamscape-jaeger-prod
+    restart: unless-stopped
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - bigpods-network
+    labels:
+      - "com.dreamscape.service=jaeger"
+      - "com.dreamscape.environment=production"
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_prod_data:
+    name: dreamscape_postgres_prod_data
+    driver: local
+  redis_prod_data:
+    name: dreamscape_redis_prod_data
+    driver: local
+  kafka_prod_data:
+    name: dreamscape_kafka_prod_data
+    driver: local
+  minio_prod_data:
+    name: dreamscape_minio_prod_data
+    driver: local
+  prometheus_prod_data:
+    name: dreamscape_prometheus_prod_data
+    driver: local
+  grafana_prod_data:
+    name: dreamscape_grafana_prod_data
+    driver: local
+  loki_prod_data:
+    name: dreamscape_loki_prod_data
+    driver: local
+  alertmanager_prod_data:
+    name: dreamscape_alertmanager_prod_data
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  bigpods-network:
+    name: dreamscape-bigpods-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================================================
+# Usage
+# ============================================================================
+# Start all services:
+#   docker-compose -f docker/docker-compose.bigpods.prod.yml up -d
+#
+# Start specific pods:
+#   docker-compose -f docker/docker-compose.bigpods.prod.yml up -d core-pod business-pod
+#
+# View logs:
+#   docker-compose -f docker/docker-compose.bigpods.prod.yml logs -f core-pod
+#
+# Stop all:
+#   docker-compose -f docker/docker-compose.bigpods.prod.yml down
+#
+# Access points:
+#   - Core Pod (Auth): http://localhost:3001
+#   - Core Pod (User): http://localhost:3002
+#   - Core Pod (NGINX): http://localhost:8081
+#   - Business Pod (Voyage): http://localhost:3003
+#   - Business Pod (AI): http://localhost:3004
+#   - Business Pod (Payment): http://localhost:3005
+#   - Experience Pod (Web): http://localhost:8080
+#   - Experience Pod (Panorama): http://localhost:3006
+#   - Experience Pod (Gateway): http://localhost:4000
+#   - PostgreSQL: localhost:5433
+#   - Redis: localhost:6380
+#   - Kafka: localhost:9095
+#   - MinIO API: http://localhost:9000
+#   - MinIO Console: http://localhost:9001
+#   - Prometheus: http://localhost:9090
+#   - Grafana: http://localhost:3010 (admin/admin)
+#   - Loki: http://localhost:3100
+#   - AlertManager: http://localhost:9094
+#   - Jaeger UI: http://localhost:16686
+# ============================================================================

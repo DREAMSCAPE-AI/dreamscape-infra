@@ -19,7 +19,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-      - ./dreamscape-infrastructure/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./dreamscape-infra/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
 
     networks:
       - core-pod-network
@@ -51,7 +51,7 @@ services:
   # Core Pod - Multi-service container with Supervisor
   core-pod:
     build:
-      context: ./dreamscape-infrastructure/core-pod
+      context: ./dreamscape-infra/core-pod
       dockerfile: Dockerfile
 
     container_name: dreamscape-core-pod
@@ -104,7 +104,7 @@ services:
       - user_uploads:/app/user/uploads
       
       # Configuration files (for development)
-      - ./dreamscape-infrastructure/core-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ./dreamscape-infra/core-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
 
       
       # Health status files (for external monitoring)
