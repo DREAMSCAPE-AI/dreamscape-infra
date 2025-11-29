@@ -78,6 +78,15 @@ jobs:
             COMPONENT="${{ inputs.component }}"
             ENVIRONMENT="${{ inputs.environment }}"
             EVENT_TYPE="manual"
+
+            # For manual dispatch, if image_tag is "latest", fetch the actual SHA
+            if [[ "${SOURCE_SHA}" == "latest" ]]; then
+              echo "⚠️ Fetching latest SHA from ${SOURCE_REPO}/${SOURCE_REF}..."
+              SOURCE_SHA=$(curl -s -H "Authorization: token ${{ secrets.DISPATCH_TOKEN }}" \
+                "https://api.github.com/repos/${SOURCE_REPO}/commits/${SOURCE_REF}" | \
+                jq -r '.sha')
+              echo "✅ Using SHA: ${SOURCE_SHA}"
+            fi
           fi
 
           echo "source_repo=${SOURCE_REPO}" >> $GITHUB_OUTPUT
@@ -91,9 +100,8 @@ jobs:
           SHOULD_DEPLOY="false"
           case "${EVENT_TYPE}" in
             "services-changed"|"frontend-changed")
-              if [[ "${ENVIRONMENT}" != "dev" ]]; then
-                SHOULD_DEPLOY="true"
-              fi
+              # Deploy to all environments: dev → staging → production
+              SHOULD_DEPLOY="true"
               ;;
             "manual")
               SHOULD_DEPLOY="true"
@@ -249,14 +257,39 @@ jobs:
           repository: DREAMSCAPE-AI/dreamscape-tests
           token: ${{ secrets.DISPATCH_TOKEN }}
 
-      - name: Setup Node.js
+      - name: Check for package-lock.json
+        id: check-lockfile
+        run: |
+          if [ -f "package-lock.json" ]; then
+            echo "has_lockfile=true" >> $GITHUB_OUTPUT
+            echo "✅ package-lock.json found"
+          else
+            echo "has_lockfile=false" >> $GITHUB_OUTPUT
+            echo "⚠️ package-lock.json not found, npm cache will be disabled"
+          fi
+
+      - name: Setup Node.js (with cache)
+        if: steps.check-lockfile.outputs.has_lockfile == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
+      - name: Setup Node.js (without cache)
+        if: steps.check-lockfile.outputs.has_lockfile == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f "package-lock.json" ]; then
+            echo "📦 Using npm ci (lockfile found)"
+            npm ci
+          else
+            echo "📦 Using npm install (no lockfile)"
+            npm install
+          fi
 
       - name: Run integration tests
         env:
@@ -311,8 +344,23 @@ jobs:
           # Check if we should build this service
           if [[ "${COMPONENT}" == "all" ]] || [[ "${COMPONENT}" == *"${SERVICE}"* ]]; then
             if [ -d "source-repo/${SERVICE}" ] || [ -d "source-repo/${SERVICE}-service" ]; then
+              # Determine Dockerfile path
+              SERVICE_DIR="source-repo/${SERVICE}"
+              [ ! -d "${SERVICE_DIR}" ] && SERVICE_DIR="source-repo/${SERVICE}-service"
+
+              if [ -f "${SERVICE_DIR}/Dockerfile.prod" ]; then
+                DOCKERFILE="Dockerfile.prod"
+              elif [ -f "${SERVICE_DIR}/Dockerfile" ]; then
+                DOCKERFILE="Dockerfile"
+              else
+                echo "should_build=false" >> $GITHUB_OUTPUT
+                echo "⏭️ Skipping ${SERVICE} (no Dockerfile found)"
+                exit 0
+              fi
+
               echo "should_build=true" >> $GITHUB_OUTPUT
-              echo "✅ Will build ${SERVICE}"
+              echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
+              echo "✅ Will build ${SERVICE} using ${DOCKERFILE}"
             else
               echo "should_build=false" >> $GITHUB_OUTPUT
               echo "⏭️ Skipping ${SERVICE} (not found)"
@@ -339,6 +387,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: source-repo/${{ matrix.service }}
+          file: source-repo/${{ matrix.service }}/${{ steps.check.outputs.dockerfile }}
           push: true
           tags: |
             ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-and-create-deployment.outputs.source_sha }}
@@ -378,6 +427,7 @@ jobs:
         env:
           K3S_HOST: ${{ secrets.K3S_HOST }}
         run: |
+          mkdir -p ~/.kube
           ssh ubuntu@$K3S_HOST "sudo cat /etc/rancher/k3s/k3s.yaml" | \
             sed "s/127.0.0.1/$K3S_HOST/g" > ~/.kube/config
           chmod 600 ~/.kube/config

@@ -57,3 +57,15 @@ Thumbs.db
 *.p7s
 *.pfx
 *.p12
+# Monitoring configs (géré séparément par Eloi)
+docker/monitoring/
+monitoring/*.yml
+
+# Test reports (temporaires)
+TEST-REPORT-*.md
+
+# Scripts production (géré séparément)
+scripts/production/
+
+# Docs (géré séparément)
+docs/
