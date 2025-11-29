@@ -100,9 +100,8 @@ jobs:
           SHOULD_DEPLOY="false"
           case "${EVENT_TYPE}" in
             "services-changed"|"frontend-changed")
-              if [[ "${ENVIRONMENT}" != "dev" ]]; then
-                SHOULD_DEPLOY="true"
-              fi
+              # Deploy to all environments: dev → staging → production
+              SHOULD_DEPLOY="true"
               ;;
             "manual")
               SHOULD_DEPLOY="true"
