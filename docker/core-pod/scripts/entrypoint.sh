@@ -72,13 +72,15 @@ fi
 echo -e "${YELLOW}📁 Creating directories and setting permissions...${NC}"
 
 # Log directories
-mkdir -p /var/log/supervisor /var/log/nginx
+mkdir -p /var/log/supervisor /var/log/nginx /run/nginx
 chown -R root:root /var/log/supervisor
-chown -R nginx:nginx /var/log/nginx
+chown -R nginx:nginx /var/log/nginx /run/nginx
 
 # Application directories
 mkdir -p /app/auth/logs /app/user/logs /app/user/uploads
-chown -R nodejs:nodejs /app/auth /app/user
+# Note: chown déjà appliqué dans le Dockerfile avec --chown sur les COPY
+# chown -R nodejs:nodejs /app/auth /app/user  # Commenté pour performance
+chown nodejs:nodejs /app/auth/logs /app/user/logs /app/user/uploads
 chmod 755 /app/user/uploads
 
 # Supervisor socket directory

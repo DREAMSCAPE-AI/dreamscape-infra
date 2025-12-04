@@ -1,0 +1,116 @@
+# ============================================================================
+# DreamScape Experience Pod - Production Dockerfile
+# Multi-process container: Web Client + Panorama (stub) + Gateway (stub)
+# Architecture: React build + NGINX static serving + Node.js services
+# ============================================================================
+
+# =============================================================================
+# Stage 1: Build Web Client (React/Vite)
+# =============================================================================
+FROM node:20-alpine AS web-builder
+
+WORKDIR /build/web
+
+COPY dreamscape-frontend/web-client/package*.json ./
+RUN npm install --ignore-scripts && npm cache clean --force
+
+COPY dreamscape-frontend/web-client ./
+
+ENV NODE_ENV=production
+RUN npm run build
+
+# =============================================================================
+# Stage 2: Production Image
+# =============================================================================
+FROM node:20-alpine AS production
+
+# Install system dependencies
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    curl \
+    tini \
+    dumb-init \
+    python3 \
+    py3-psutil \
+    ca-certificates && \
+    apk upgrade --no-cache
+
+# Create directories
+RUN mkdir -p \
+    /app/panorama \
+    /app/gateway \
+    /app/scripts \
+    /var/log/supervisor \
+    /var/log/nginx \
+    /run/nginx \
+    /run/supervisor \
+    /usr/share/nginx/html \
+    /var/cache/nginx/vr
+
+# Create nodejs group and user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Set permissions
+RUN chown -R nodejs:nodejs /app && \
+    chown -R nginx:nginx /var/log/nginx /run/nginx /var/cache/nginx && \
+    chown -R root:root /var/log/supervisor
+
+# Copy built web client to nginx serve directory
+COPY --from=web-builder --chown=nginx:nginx /build/web/dist /usr/share/nginx/html
+
+# Copy Panorama service (JavaScript stub from bigpods)
+COPY --chown=nodejs:nodejs dreamscape-infra/docker/bigpods/experience-pod/services/panorama-service/ /app/panorama/
+
+# Copy Gateway service (JavaScript stub from bigpods)
+COPY --chown=nodejs:nodejs dreamscape-infra/docker/bigpods/experience-pod/services/gateway-service/ /app/gateway/
+
+# Install node dependencies for services
+WORKDIR /app/panorama
+RUN npm install --only=production --ignore-scripts 2>/dev/null || true
+
+WORKDIR /app/gateway
+RUN npm install --only=production --ignore-scripts 2>/dev/null || true
+
+WORKDIR /app
+
+# Copy NGINX configuration
+COPY dreamscape-infra/docker/bigpods/experience-pod/nginx.prod.conf /etc/nginx/nginx.conf
+
+# Copy Supervisor configuration
+COPY dreamscape-infra/docker/bigpods/experience-pod/supervisor/supervisord.prod.conf /etc/supervisor/supervisord.conf
+
+# Copy scripts
+COPY --chown=nodejs:nodejs dreamscape-infra/docker/bigpods/experience-pod/scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.py /app/scripts/*.sh 2>/dev/null || true
+
+# Create health check script
+RUN echo '#!/bin/sh' > /usr/local/bin/health-check.sh && \
+    echo 'curl -f http://localhost/health || exit 1' >> /usr/local/bin/health-check.sh && \
+    chmod +x /usr/local/bin/health-check.sh
+
+# Create VR content placeholder
+RUN mkdir -p /usr/share/nginx/html/vr && \
+    echo '{"panoramas": [], "tours": [], "version": "1.0.0"}' > /usr/share/nginx/html/vr/vr-catalog.json && \
+    chown -R nginx:nginx /usr/share/nginx/html
+
+# Expose ports
+EXPOSE 80 3006 3007 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
+    CMD /usr/local/bin/health-check.sh
+
+# Use tini for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+
+# Metadata labels
+LABEL maintainer="DreamScape Team <dev@dreamscape.com>" \
+      version="1.0.0" \
+      description="DreamScape Experience Pod - Web Client + Gateway + Panorama (stubs)" \
+      org.opencontainers.image.title="DreamScape Experience Pod" \
+      org.opencontainers.image.vendor="DreamScape"
