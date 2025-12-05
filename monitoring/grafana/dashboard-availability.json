@@ -1,0 +1,830 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "limit": 100,
+        "name": "Downtime Events",
+        "showIn": 0,
+        "tags": ["downtime", "outage"],
+        "type": "tags"
+      }
+    ]
+  },
+  "description": "DreamScape Service Availability and SLA Dashboard - INFRA-013.2",
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": ["dreamscape"],
+      "targetBlank": true,
+      "title": "DreamScape Dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "panels": [],
+      "title": "📊 Overall Service Availability",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 99},
+              {"color": "green", "value": 99.9}
+            ]
+          },
+          "unit": "percent",
+          "decimals": 3
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 1},
+      "id": 1,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "expr": "dreamscape:services:healthy_percentage",
+          "refId": "A"
+        }
+      ],
+      "title": "Platform Health",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "Uptime %",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "min": 95,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 99.5},
+              {"color": "green", "value": 99.9}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 6, "w": 10, "x": 4, "y": 1},
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "last"],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:service:uptime_24h",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Service Uptime - Last 24h",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"0": {"text": "DOWN", "color": "red"}}, "type": "value"},
+            {"options": {"1": {"text": "UP", "color": "green"}}, "type": "value"}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 6, "w": 10, "x": 14, "y": 1},
+      "id": 3,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "showUnfilled": true
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "expr": "dreamscape:service:health_status",
+          "legendFormat": "{{service}} ({{environment}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Service Health Status",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7},
+      "id": 101,
+      "title": "🎯 SLA Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "align": "auto",
+            "displayMode": "color-background"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 99.5},
+              {"color": "green", "value": 99.9}
+            ]
+          },
+          "unit": "percent",
+          "decimals": 3
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Downtime (30d)"},
+            "properties": [
+              {"id": "unit", "value": "s"},
+              {"id": "decimals", "value": 0}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Incidents (7d)"},
+            "properties": [
+              {"id": "unit", "value": "short"},
+              {"id": "decimals", "value": 0},
+              {"id": "thresholds", "value": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 5},
+                  {"color": "red", "value": 10}
+                ]
+              }}
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "id": 4,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{"displayName": "Uptime 30d", "desc": false}]
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "expr": "dreamscape:service:uptime_1h",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        },
+        {
+          "expr": "dreamscape:service:uptime_24h",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "dreamscape:service:uptime_7d",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "dreamscape:service:uptime_30d",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "expr": "dreamscape:service:downtime_seconds_30d",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        },
+        {
+          "expr": "dreamscape:service:downtime_incidents_7d",
+          "format": "table",
+          "instant": true,
+          "refId": "F"
+        }
+      ],
+      "title": "SLA Overview Table",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {"Time": true},
+            "indexByName": {},
+            "renameByName": {
+              "service": "Service",
+              "environment": "Environment",
+              "Value #A": "Uptime 1h",
+              "Value #B": "Uptime 24h",
+              "Value #C": "Uptime 7d",
+              "Value #D": "Uptime 30d",
+              "Value #E": "Downtime (30d)",
+              "Value #F": "Incidents (7d)"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 99.5},
+              {"color": "red", "value": 99.9}
+            ]
+          },
+          "unit": "percent",
+          "min": 99,
+          "max": 100
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "showUnfilled": true,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 18
+        }
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "expr": "dreamscape:service:uptime_30d",
+          "legendFormat": "{{service}} - {{environment}}",
+          "refId": "A"
+        }
+      ],
+      "title": "30-Day SLA (Target: 99.9%)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "Downtime (seconds)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "hue",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 300},
+              {"color": "red", "value": 600}
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "max"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {
+          "expr": "increase(dreamscape:service:downtime_seconds_24h[1h])",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downtime Over Time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 24},
+      "id": 102,
+      "title": "⚡ MTTR & MTBF",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 300},
+              {"color": "red", "value": 600}
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 25},
+      "id": 7,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": "/^auth$/"
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "expr": "dreamscape:service:mttr_seconds_24h{service=\"auth\"}",
+          "legendFormat": "auth",
+          "refId": "A"
+        }
+      ],
+      "title": "MTTR - Auth (24h)",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 300},
+              {"color": "red", "value": 600}
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 25},
+      "id": 8,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": "/^user$/"
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:service:mttr_seconds_24h{service=\"user\"}",
+          "legendFormat": "user",
+          "refId": "A"
+        }
+      ],
+      "title": "MTTR - User (24h)",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 24},
+              {"color": "green", "value": 168}
+            ]
+          },
+          "unit": "h"
+        }
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 25},
+      "id": 9,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:service:mtbf_hours_7d",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "MTBF - 7 Days",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "Incidents",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 25},
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {
+          "expr": "increase(dreamscape:service:downtime_incidents_24h[1h])",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downtime Incidents",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 31},
+      "id": 103,
+      "title": "🔗 Dependencies Health",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"0": {"text": "DOWN", "color": "red"}}, "type": "value"},
+            {"options": {"1": {"text": "UP", "color": "green"}}, "type": "value"}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 5, "w": 4, "x": 0, "y": 32},
+      "id": 11,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "text": {},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:dependency:postgresql_available",
+          "legendFormat": "PostgreSQL",
+          "refId": "A"
+        }
+      ],
+      "title": "PostgreSQL",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"0": {"text": "DOWN", "color": "red"}}, "type": "value"},
+            {"options": {"1": {"text": "UP", "color": "green"}}, "type": "value"}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 5, "w": 4, "x": 4, "y": 32},
+      "id": 12,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:dependency:mongodb_available",
+          "legendFormat": "MongoDB",
+          "refId": "A"
+        }
+      ],
+      "title": "MongoDB",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"0": {"text": "DOWN", "color": "red"}}, "type": "value"},
+            {"options": {"1": {"text": "UP", "color": "green"}}, "type": "value"}
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 5, "w": 4, "x": 8, "y": 32},
+      "id": 13,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:dependency:redis_available",
+          "legendFormat": "Redis",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 80},
+              {"color": "green", "value": 95}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 32},
+      "id": 14,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "dreamscape:dependency:health_score",
+          "refId": "A"
+        }
+      ],
+      "title": "Overall Dependency Health Score",
+      "type": "gauge"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["dreamscape", "availability", "sla", "infra-013"],
+  "templating": {
+    "list": [
+      {
+        "allValue": null,
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "Prometheus",
+        "definition": "label_values(dreamscape:service:health_status, service)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "options": [],
+        "query": {
+          "query": "label_values(dreamscape:service:health_status, service)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": null,
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": "Prometheus",
+        "definition": "label_values(dreamscape:service:health_status, environment)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": {
+          "query": "label_values(dreamscape:service:health_status, environment)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "DreamScape - Service Availability & SLA",
+  "uid": "dreamscape-availability-sla",
+  "version": 1
+}
