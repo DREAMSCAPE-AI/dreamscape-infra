@@ -12,8 +12,8 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -42,8 +42,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - prometheus
     networks:
@@ -81,7 +81,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
@@ -100,7 +100,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./monitoring/loki.yml:/etc/loki/local-config.yaml:ro
+      - ../monitoring/loki.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     networks:
@@ -114,7 +114,7 @@ services:
     container_name: dreamscape-promtail
     restart: unless-stopped
     volumes:
-      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+      - ../monitoring/promtail.yml:/etc/promtail/config.yml:ro
       - /var/log:/var/log:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     command: -config.file=/etc/promtail/config.yml
@@ -150,7 +150,7 @@ services:
     ports:
       - "9308:9308"
     command:
-      - '--kafka.server=kafka:9092'
+      - '--kafka.server=dreamscape-kafka:9092'
       - '--log.level=info'
       - '--web.listen-address=:9308'
       - '--web.telemetry-path=/metrics'
@@ -172,7 +172,7 @@ services:
     environment:
       - SERVICE_PORT=5556
     volumes:
-      - ./monitoring/kafka-jmx-config.yml:/etc/jmx-exporter/config.yml:ro
+      - ../monitoring/kafka-jmx-config.yml:/etc/jmx-exporter/config.yml:ro
     command:
       - "5556"
       - "/etc/jmx-exporter/config.yml"
