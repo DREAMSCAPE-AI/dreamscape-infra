@@ -142,6 +142,45 @@ services:
     labels:
       - "com.dreamscape.service=jaeger"
 
+  # Kafka Exporter for Kafka metrics - DR-261
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: dreamscape-kafka-exporter
+    restart: unless-stopped
+    ports:
+      - "9308:9308"
+    command:
+      - '--kafka.server=kafka:9092'
+      - '--log.level=info'
+      - '--web.listen-address=:9308'
+      - '--web.telemetry-path=/metrics'
+    depends_on:
+      - prometheus
+    networks:
+      - dreamscape-network
+    labels:
+      - "com.dreamscape.service=kafka-exporter"
+      - "com.dreamscape.version=latest"
+
+  # JMX Exporter for Kafka broker metrics - DR-261
+  kafka-jmx-exporter:
+    image: bitnami/jmx-exporter:latest
+    container_name: dreamscape-kafka-jmx-exporter
+    restart: unless-stopped
+    ports:
+      - "5556:5556"
+    environment:
+      - SERVICE_PORT=5556
+    volumes:
+      - ./monitoring/kafka-jmx-config.yml:/etc/jmx-exporter/config.yml:ro
+    command:
+      - "5556"
+      - "/etc/jmx-exporter/config.yml"
+    networks:
+      - dreamscape-network
+    labels:
+      - "com.dreamscape.service=kafka-jmx-exporter"
+
 volumes:
   prometheus_data:
     name: dreamscape_prometheus_data

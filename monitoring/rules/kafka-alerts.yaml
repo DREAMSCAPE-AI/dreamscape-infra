@@ -1,0 +1,183 @@
+# Kafka Alert Rules - DR-263
+# Alertes pour le monitoring Kafka
+
+groups:
+  - name: kafka_availability
+    interval: 30s
+    rules:
+      # Kafka Broker Down
+      - alert: KafkaBrokerDown
+        expr: up{job="kafka-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+          service: kafka-exporter
+        annotations:
+          summary: "Kafka broker is down"
+          description: "Kafka exporter {{ $labels.instance }} has been down for more than 2 minutes."
+          runbook_url: "https://docs.dreamscape.ai/runbooks/kafka-broker-down"
+
+      # Kafka JMX Exporter Down
+      - alert: KafkaJMXExporterDown
+        expr: up{job="kafka-jmx"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: kafka
+          service: kafka-jmx
+        annotations:
+          summary: "Kafka JMX exporter is down"
+          description: "Kafka JMX exporter {{ $labels.instance }} has been down for more than 2 minutes. Broker metrics unavailable."
+
+  - name: kafka_performance
+    interval: 30s
+    rules:
+      # High Consumer Lag
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumergroup_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          type: consumer_lag
+        annotations:
+          summary: "High consumer lag detected"
+          description: "Consumer group {{ $labels.consumergroup }} on topic {{ $labels.topic }} has lag of {{ $value }} messages for more than 5 minutes."
+          impact: "Messages are not being consumed quickly enough, which may lead to delays in event processing."
+          action: "Check consumer health and scale consumers if needed."
+
+      # Critical Consumer Lag
+      - alert: KafkaConsumerLagCritical
+        expr: kafka_consumergroup_lag > 10000
+        for: 5m
+        labels:
+          severity: critical
+          component: kafka
+          type: consumer_lag
+        annotations:
+          summary: "Critical consumer lag detected"
+          description: "Consumer group {{ $labels.consumergroup }} on topic {{ $labels.topic }} has critical lag of {{ $value }} messages."
+          impact: "Severe delays in event processing. Data loss risk if retention period is exceeded."
+          action: "IMMEDIATE ACTION REQUIRED: Scale consumers or investigate processing bottleneck."
+
+      # Under Replicated Partitions
+      - alert: KafkaUnderReplicatedPartitions
+        expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          type: replication
+        annotations:
+          summary: "Under-replicated partitions detected"
+          description: "Broker {{ $labels.broker }} has {{ $value }} under-replicated partitions for more than 5 minutes."
+          impact: "Data durability at risk. If broker fails, data loss may occur."
+          action: "Check broker health, network connectivity, and replication factor configuration."
+
+      # Offline Partitions
+      - alert: KafkaOfflinePartitions
+        expr: kafka_controller_kafkacontroller_offlinepartitionscount > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: kafka
+          type: partitions
+        annotations:
+          summary: "Offline partitions detected"
+          description: "{{ $value }} partitions are offline on broker {{ $labels.broker }}."
+          impact: "CRITICAL: Topics are unavailable. Message production and consumption blocked."
+          action: "IMMEDIATE ACTION: Check broker logs and restart affected brokers if needed."
+
+  - name: kafka_throughput
+    interval: 30s
+    rules:
+      # High Request Rate
+      - alert: KafkaHighRequestRate
+        expr: rate(kafka_network_requestmetrics_requests_total[5m]) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: kafka
+          type: throughput
+        annotations:
+          summary: "High Kafka request rate"
+          description: "Broker {{ $labels.broker }} is receiving {{ $value }} requests/sec for request type {{ $labels.request }}."
+          impact: "High load on Kafka brokers may lead to increased latency."
+          action: "Monitor broker CPU and memory. Consider scaling if sustained."
+
+      # Low Throughput (Messages In)
+      - alert: KafkaLowMessagesInRate
+        expr: rate(kafka_server_brokertopicmetrics_messagesin_total[10m]) < 1
+        for: 15m
+        labels:
+          severity: info
+          component: kafka
+          type: throughput
+        annotations:
+          summary: "Low message ingestion rate"
+          description: "Broker {{ $labels.broker }} is receiving very few messages ({{ $value }} msgs/sec)."
+          impact: "Possible issue with producers or expected low traffic period."
+          action: "Verify producers are running and publishing messages."
+
+  - name: kafka_errors
+    interval: 30s
+    rules:
+      # Failed Produce Requests
+      - alert: KafkaFailedProduceRequests
+        expr: rate(kafka_server_brokertopicmetrics_failedfetchrequests_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          type: errors
+        annotations:
+          summary: "Failed produce requests detected"
+          description: "Broker {{ $labels.broker }} has {{ $value }} failed produce requests/sec."
+          impact: "Messages may be failing to be written to Kafka."
+          action: "Check producer logs and broker errors. Verify topic configuration and quotas."
+
+      # ISR Shrinks
+      - alert: KafkaISRShrinks
+        expr: rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          type: replication
+        annotations:
+          summary: "In-Sync Replica set is shrinking"
+          description: "Broker {{ $labels.broker }} has ISR shrinking at {{ $value }} shrinks/sec."
+          impact: "Replicas are falling behind, reducing fault tolerance."
+          action: "Investigate network issues, broker performance, or disk I/O problems."
+
+  - name: kafka_disk
+    interval: 30s
+    rules:
+      # High Disk Usage
+      - alert: KafkaDiskUsageHigh
+        expr: (kafka_log_size_bytes / kafka_log_size_limit_bytes) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+          type: disk
+        annotations:
+          summary: "High Kafka disk usage"
+          description: "Kafka log directory on broker {{ $labels.broker }} is {{ $value | humanizePercentage }} full."
+          impact: "Risk of running out of disk space, which would prevent new messages from being written."
+          action: "Increase log retention cleanup frequency, reduce retention period, or add more disk space."
+
+      # Critical Disk Usage
+      - alert: KafkaDiskUsageCritical
+        expr: (kafka_log_size_bytes / kafka_log_size_limit_bytes) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+          type: disk
+        annotations:
+          summary: "CRITICAL: Kafka disk usage"
+          description: "Kafka log directory on broker {{ $labels.broker }} is {{ $value | humanizePercentage }} full."
+          impact: "IMMINENT FAILURE: Kafka will stop accepting messages when disk is full."
+          action: "IMMEDIATE ACTION: Free up disk space or increase storage capacity NOW."
