@@ -1,0 +1,124 @@
+# Prometheus Configuration for DreamScape
+# DR-260 / DR-261: Kafka Monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'dreamscape'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - '/etc/prometheus/rules/*.yaml'
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Node Exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+
+  # DreamScape Services - Auth Service
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3001']
+        labels:
+          service: 'auth-service'
+          pod: 'core'
+    metrics_path: '/health'
+    scrape_interval: 30s
+
+  # DreamScape Services - User Service
+  - job_name: 'user-service'
+    static_configs:
+      - targets: ['user-service:3002']
+        labels:
+          service: 'user-service'
+          pod: 'core'
+    metrics_path: '/health'
+    scrape_interval: 30s
+
+  # DreamScape Services - Payment Service
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:3003']
+        labels:
+          service: 'payment-service'
+          pod: 'business'
+    metrics_path: '/api/health'
+    scrape_interval: 30s
+
+  # DreamScape Services - Voyage Service
+  - job_name: 'voyage-service'
+    static_configs:
+      - targets: ['voyage-service:3004']
+        labels:
+          service: 'voyage-service'
+          pod: 'business'
+    metrics_path: '/api/health'
+    scrape_interval: 30s
+
+  # DreamScape Services - AI Service
+  - job_name: 'ai-service'
+    static_configs:
+      - targets: ['ai-service:3005']
+        labels:
+          service: 'ai-service'
+          pod: 'business'
+    metrics_path: '/health'
+    scrape_interval: 30s
+
+  # Kafka Exporter - Consumer group metrics, lag, topics - DR-261
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        labels:
+          service: 'kafka-exporter'
+          component: 'kafka'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Kafka JMX Exporter - Broker metrics, throughput, partitions - DR-261
+  - job_name: 'kafka-jmx'
+    static_configs:
+      - targets: ['kafka-jmx-exporter:5556']
+        labels:
+          service: 'kafka-jmx'
+          component: 'kafka'
+    scrape_interval: 30s
+
+  # PostgreSQL Exporter (if available)
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres-exporter'
+          database: 'dreamscape'
+    scrape_interval: 30s
+
+  # Redis Exporter (if available)
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis-exporter'
+          cache: 'redis'
+    scrape_interval: 30s
