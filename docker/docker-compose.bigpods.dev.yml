@@ -32,6 +32,9 @@ services:
       # Mount service code for hot reload
       - ../../dreamscape-services/auth:/app/auth:delegated
       - ../../dreamscape-services/user:/app/user:delegated
+      # Mount shared libraries and database
+      - ../../dreamscape-services/shared:/app/shared:delegated
+      - ../../dreamscape-services/db:/app/db:delegated
       # Exclude node_modules from host (use container's own node_modules)
       - /app/auth/node_modules
       - /app/user/node_modules
@@ -52,6 +55,7 @@ services:
       - DB_NAME=dreamscape_dev
       - DB_USER=dev
       - DB_PASSWORD=dev123
+      - DATABASE_URL=postgresql://dev:dev123@postgres:5432/dreamscape_dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - JWT_SECRET=dev-jwt-secret-change-in-production
@@ -98,6 +102,9 @@ services:
       - ../../dreamscape-services/voyage:/app/voyage:delegated
       - ../../dreamscape-services/ai:/app/ai:delegated
       - ../../dreamscape-services/payment:/app/payment:delegated
+      # Mount shared libraries and database
+      - ../../dreamscape-services/shared:/app/shared:delegated
+      - ../../dreamscape-services/db:/app/db:delegated
       # Exclude node_modules from host (use container's own node_modules)
       - /app/voyage/node_modules
       - /app/ai/node_modules
@@ -116,6 +123,7 @@ services:
       - DB_NAME=dreamscape_dev
       - DB_USER=dev
       - DB_PASSWORD=dev123
+      - DATABASE_URL=postgresql://dev:dev123@postgres:5432/dreamscape_dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BROKERS=kafka:9092
@@ -174,10 +182,14 @@ services:
       - ../../dreamscape-frontend/web-client:/app/web:delegated
       - ../../dreamscape-frontend/panorama:/app/panorama:delegated
       - ../../dreamscape-frontend/gateway:/app/gateway:delegated
+      # Mount shared libraries for health checks (INFRA-013.1)
+      - ../../dreamscape-services/shared:/app/shared:delegated
       # Exclude node_modules from host (use container's own node_modules)
       - /app/web/node_modules
       - /app/panorama/node_modules
       - /app/gateway/node_modules
+      # Mount NGINX config
+      - ./bigpods/experience-pod/nginx.dev.conf:/etc/nginx/nginx.conf:ro
       # VR Assets
       - vr-assets:/app/assets/vr
       # Logs
@@ -192,6 +204,11 @@ services:
       - VITE_WS_URL=ws://localhost/ws
       - GATEWAY_PORT=4000
       - PANORAMA_PORT=3006
+      # Service URLs for Gateway health checks (INFRA-013.1)
+      - AUTH_SERVICE_URL=http://core-pod:3001
+      - USER_SERVICE_URL=http://core-pod:3002
+      - VOYAGE_SERVICE_URL=http://business-pod:3003
+      - AI_SERVICE_URL=http://business-pod:3004
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-dreamscape-dev}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-dreamscape-dev-secret}
