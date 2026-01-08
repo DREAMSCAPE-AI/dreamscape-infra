@@ -192,10 +192,10 @@ jobs:
 
           # Build with version tag
           ./build-bigpods.sh \
-            --pod ${{ matrix.pod }} \
-            --version "$version" \
+            -v "$version" \
             --push \
-            --verbose
+            --verbose \
+            ${{ matrix.pod }}
 
       - name: 🔍 Verify Image Push
         run: |
