@@ -1,0 +1,83 @@
+# Kafka JMX Exporter Configuration - DR-261
+# Exports Kafka broker metrics via JMX
+
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+# Whitelist of JMX beans to scrape
+whitelistObjectNames:
+  - "kafka.server:type=BrokerTopicMetrics,name=*"
+  - "kafka.server:type=ReplicaManager,name=*"
+  - "kafka.server:type=KafkaRequestHandlerPool,name=*"
+  - "kafka.server:type=SessionExpireListener,name=*"
+  - "kafka.controller:type=KafkaController,name=*"
+  - "kafka.network:type=RequestMetrics,name=*,request=*"
+  - "kafka.network:type=Processor,name=*,networkProcessor=*"
+  - "kafka.log:type=LogFlushStats,name=*"
+  - "kafka.server:type=ReplicaFetcherManager,name=*,clientId=*"
+  - "kafka.server:type=socket-server-metrics,listener=*,networkProcessor=*"
+
+# Rules for metric transformation
+rules:
+  # Broker Topic Metrics
+  - pattern: "kafka.server<type=BrokerTopicMetrics, name=(.+)><>Count"
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+    labels:
+      broker: "$hostName"
+
+  - pattern: "kafka.server<type=BrokerTopicMetrics, name=(.+), topic=(.+)><>Count"
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+    labels:
+      topic: "$2"
+      broker: "$hostName"
+
+  # Replica Manager
+  - pattern: "kafka.server<type=ReplicaManager, name=(.+)><>Value"
+    name: kafka_server_replicamanager_$1
+    labels:
+      broker: "$hostName"
+
+  # Request Handler Pool
+  - pattern: "kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>OneMinuteRate"
+    name: kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent_rate1m
+    labels:
+      broker: "$hostName"
+
+  # Controller
+  - pattern: "kafka.controller<type=KafkaController, name=(.+)><>Value"
+    name: kafka_controller_kafkacontroller_$1
+    labels:
+      broker: "$hostName"
+
+  # Request Metrics
+  - pattern: "kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>Count"
+    name: kafka_network_requestmetrics_$1_total
+    type: COUNTER
+    labels:
+      request: "$2"
+      broker: "$hostName"
+
+  - pattern: "kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>(\d+)thPercentile"
+    name: kafka_network_requestmetrics_$1_$3percentile
+    labels:
+      request: "$2"
+      broker: "$hostName"
+
+  # Log Flush Stats
+  - pattern: "kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>Count"
+    name: kafka_log_logflushstats_total
+    type: COUNTER
+    labels:
+      broker: "$hostName"
+
+  # Replica Fetcher Manager
+  - pattern: "kafka.server<type=ReplicaFetcherManager, name=(.+), clientId=(.+)><>Value"
+    name: kafka_server_replicafetchermanager_$1
+    labels:
+      clientId: "$2"
+      broker: "$hostName"
+
+  # Generic catch-all rule
+  - pattern: ".*"
