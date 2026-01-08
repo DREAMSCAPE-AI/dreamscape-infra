@@ -168,6 +168,10 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
+      - name: Ensure bigpods scripts executable
+        run: |
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
+
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -220,6 +224,10 @@ jobs:
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
+
+      - name: Ensure bigpods scripts executable
+        run: |
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
       - name: 🔧 Setup Deployment Environment
         run: |
@@ -307,6 +315,10 @@ jobs:
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
+
+      - name: Ensure bigpods scripts executable
+        run: |
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
       - name: 🔧 Setup Production Environment
         run: |
@@ -491,6 +503,10 @@ jobs:
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
+
+      - name: Ensure bigpods scripts executable
+        run: |
+          find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
       - name: 🆘 Execute Emergency Rollback
         working-directory: scripts/bigpods
