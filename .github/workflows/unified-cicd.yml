@@ -409,13 +409,6 @@ jobs:
       - name: Checkout infrastructure repository
         uses: actions/checkout@v4
 
-      - name: Setup kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          kubectl version --client
-
       - name: Setup SSH for K3s
         run: |
           mkdir -p ~/.ssh
@@ -423,63 +416,51 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.K3S_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Configure kubectl for K3s
+      - name: Deploy to K3s (SSH)
         env:
           K3S_HOST: ${{ secrets.K3S_HOST }}
-        run: |
-          mkdir -p ~/.kube
-          ssh ubuntu@$K3S_HOST "sudo cat /etc/rancher/k3s/k3s.yaml" | \
-            sed "s/127.0.0.1/$K3S_HOST/g" > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl cluster-info
-
-      - name: Deploy to K3s
-        env:
           ENVIRONMENT: ${{ needs.parse-and-create-deployment.outputs.environment }}
           COMPONENT: ${{ needs.parse-and-create-deployment.outputs.component }}
           IMAGE_TAG: ${{ needs.parse-and-create-deployment.outputs.source_sha }}
+          DOCKER_REGISTRY: ${{ env.DOCKER_REGISTRY }}
+          ORG: ${{ env.ORG }}
         run: |
-          echo "🚀 Deploying ${COMPONENT} to ${ENVIRONMENT}"
-
+          set -e
+          ssh ubuntu@${K3S_HOST} "ENVIRONMENT='${ENVIRONMENT}' COMPONENT='${COMPONENT}' IMAGE_TAG='${IMAGE_TAG}' DOCKER_REGISTRY='${DOCKER_REGISTRY}' ORG='${ORG}' bash -s" <<'EOF'
+          set -euo pipefail
+          echo "Deploying ${COMPONENT} to ${ENVIRONMENT}"
           NAMESPACE="dreamscape-${ENVIRONMENT}"
-
-          # Create namespace if it doesn't exist
-          kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-
-          # Update image tags in deployments
+          sudo k3s kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | sudo k3s kubectl apply -f -
           if [[ "${COMPONENT}" == "all" ]]; then
             SERVICES="auth user voyage payment ai panorama gateway web-client"
           else
             SERVICES="${COMPONENT}"
           fi
-
           for service in ${SERVICES}; do
             echo "Deploying ${service}..."
-
-            # Check if deployment exists
-            if kubectl get deployment ${service} -n ${NAMESPACE} &>/dev/null; then
-              kubectl set image deployment/${service} \
-                ${service}=${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${service}:${IMAGE_TAG} \
-                -n ${NAMESPACE}
-
-              # Wait for rollout
-              kubectl rollout status deployment/${service} -n ${NAMESPACE} --timeout=5m
-              echo "✅ ${service} deployed successfully"
+            if sudo k3s kubectl get deployment "${service}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+              sudo k3s kubectl set image deployment/"${service}"                 "${service}=${DOCKER_REGISTRY}/${ORG}/${service}:${IMAGE_TAG}"                 -n "${NAMESPACE}"
+              sudo k3s kubectl rollout status deployment/"${service}" -n "${NAMESPACE}" --timeout=5m
+              echo "OK ${service}"
             else
-              echo "⚠️ Deployment ${service} not found in namespace ${NAMESPACE}"
+              echo "Skipping ${service} (deployment not found in ${NAMESPACE})"
             fi
           done
+          EOF
 
-      - name: Verify deployment
+      - name: Verify deployment (SSH)
         env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
           ENVIRONMENT: ${{ needs.parse-and-create-deployment.outputs.environment }}
         run: |
           NAMESPACE="dreamscape-${ENVIRONMENT}"
-
-          echo "📊 Deployment Status:"
-          kubectl get deployments -n ${NAMESPACE}
-          kubectl get pods -n ${NAMESPACE}
-          kubectl get services -n ${NAMESPACE}
+          ssh ubuntu@${K3S_HOST} "NAMESPACE='${NAMESPACE}' bash -s" <<'EOF'
+          set -euo pipefail
+          echo "Deployment status:"
+          sudo k3s kubectl get deployments -n "${NAMESPACE}"
+          sudo k3s kubectl get pods -n "${NAMESPACE}"
+          sudo k3s kubectl get services -n "${NAMESPACE}"
+          EOF
 
   # ============================================================
   # JOB 6: Update Deployment Status (SUCCESS)
