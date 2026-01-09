@@ -266,6 +266,8 @@ build_pod() {
 
     if [[ ! -f "docker/$compose_file" ]]; then
         log_error "Docker Compose file not found: docker/$compose_file"
+        BUILDS_FAILED=$((BUILDS_FAILED + 1))
+        BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: missing compose file\n"
         return 1
     fi
 
