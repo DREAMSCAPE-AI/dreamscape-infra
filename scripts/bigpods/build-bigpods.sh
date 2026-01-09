@@ -21,6 +21,19 @@ TOTAL_BUILD_TIME=0
 BUILDS_COMPLETED=0
 BUILDS_FAILED=0
 
+# Get the full image name for a pod, honoring registry env vars when set.
+get_pod_image_name() {
+    local pod_name="$1"
+    local registry_prefix=""
+    local namespace="${REGISTRY_NAMESPACE:-dreamscape}"
+
+    if [[ -n "${REGISTRY_URL:-}" ]]; then
+        registry_prefix="${REGISTRY_URL}/"
+    fi
+
+    echo "${registry_prefix}${namespace}/${pod_name}-pod"
+}
+
 # Usage function
 show_usage() {
     echo -e "${BLUE}${ROCKET_ICON} DreamScape Big Pods - Build Script${NC}"
@@ -282,7 +295,8 @@ build_pod() {
 
         # Tag with version if specified
         if [[ -n "$VERSION_TAG" ]]; then
-            local image_name="dreamscape/${pod_name}-pod"
+            local image_name
+            image_name=$(get_pod_image_name "$pod_name")
             docker tag "${image_name}:latest" "${image_name}:${VERSION_TAG}"
             log_success "Tagged $pod_name pod with version $VERSION_TAG"
         fi
@@ -316,7 +330,8 @@ push_pod_images() {
 
     log_info "Pushing $pod_name pod images..."
 
-    local image_name="dreamscape/${pod_name}-pod"
+    local image_name
+    image_name=$(get_pod_image_name "$pod_name")
 
     # Push latest tag
     if docker push "${image_name}:latest"; then

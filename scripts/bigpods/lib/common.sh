@@ -139,6 +139,11 @@ get_pod_ports() {
 
 get_pod_docker_compose() {
     local pod_name="$1"
+    if [[ -n "${BIGPODS_COMPOSE_FILE:-}" ]]; then
+        echo "$BIGPODS_COMPOSE_FILE"
+        return 0
+    fi
+
     get_config_value "bigpods.${pod_name}.docker_compose"
 }
 

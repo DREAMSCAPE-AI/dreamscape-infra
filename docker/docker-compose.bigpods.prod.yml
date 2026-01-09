@@ -18,6 +18,7 @@ services:
     build:
       context: ../../
       dockerfile: dreamscape-infra/docker/bigpods/core-pod/Dockerfile.prod
+    image: ${REGISTRY_URL:-ghcr.io}/${REGISTRY_NAMESPACE:-dreamscape}/core-pod
     container_name: dreamscape-core-pod
     restart: unless-stopped
     ports:
@@ -77,6 +78,7 @@ services:
     build:
       context: ../../
       dockerfile: dreamscape-infra/docker/bigpods/business-pod/Dockerfile.prod
+    image: ${REGISTRY_URL:-ghcr.io}/${REGISTRY_NAMESPACE:-dreamscape}/business-pod
     container_name: dreamscape-business-pod
     restart: unless-stopped
     ports:
@@ -147,6 +149,7 @@ services:
     build:
       context: ../../
       dockerfile: dreamscape-infra/docker/bigpods/experience-pod/Dockerfile.prod
+    image: ${REGISTRY_URL:-ghcr.io}/${REGISTRY_NAMESPACE:-dreamscape}/experience-pod
     container_name: dreamscape-experience-pod
     restart: unless-stopped
     ports:
