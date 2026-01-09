@@ -247,8 +247,12 @@ build_pod() {
 
     # Check if build is needed with smart build
     if [[ "$SMART_BUILD" == "true" ]] && ! detect_changes "$pod_name"; then
-        log_success "$pod_name pod is up to date"
-        return 0
+        if [[ "$PUSH_IMAGES" == "true" ]]; then
+            log_info "Push requested - building $pod_name pod despite no changes"
+        else
+            log_success "$pod_name pod is up to date"
+            return 0
+        fi
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
