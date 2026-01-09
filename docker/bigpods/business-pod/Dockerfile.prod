@@ -112,24 +112,24 @@ RUN --mount=type=bind,source=dreamscape-services/payment/src/stub-server.js,targ
     if [ -f /tmp/payment_stub ]; then \
         cp /tmp/payment_stub /app/payment/server.js; \
     else \
-        cat <<'EOF' > /app/payment/server.js
-#!/usr/bin/env node
-const http = require('http');
-const PORT = parseInt(process.env.PORT || '3005', 10);
-const send = (res, status, payload) => {res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(payload));};
-const server = http.createServer((req, res) => {
-  if (req.method === 'GET' && ['/health','/healthz','/status'].includes(req.url)) return send(res, 200, {status:'ok', service:'payment-stub'});
-  if (req.method === 'POST' && req.url === '/payments') {
-    let body=''; req.on('data', c => {body+=c; if (body.length>1e6) req.socket.destroy();});
-    req.on('end', () => {try {body = body ? JSON.parse(body) : {};} catch {return send(res,400,{error:'invalid-json'});} send(res,201,{status:'created',id:'stub-payment',received:body});});
-    return;
-  }
-  send(res, 200, {message:'payment stub running', path:req.url});
-});
-server.listen(PORT, () => console.log(`Payment stub listening on ${PORT}`));
-EOF
-        chmod +x /app/payment/server.js; \
-    fi
+        printf '%s\n' \
+            "#!/usr/bin/env node" \
+            "const http = require('http');" \
+            "const PORT = parseInt(process.env.PORT || '3005', 10);" \
+            "const send = (res, status, payload) => {res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(payload));};" \
+            "const server = http.createServer((req, res) => {" \
+            "  if (req.method === 'GET' && ['/health','/healthz','/status'].includes(req.url)) return send(res, 200, {status:'ok', service:'payment-stub'});" \
+            "  if (req.method === 'POST' && req.url === '/payments') {" \
+            "    let body=''; req.on('data', c => {body+=c; if (body.length>1e6) req.socket.destroy();});" \
+            "    req.on('end', () => {try {body = body ? JSON.parse(body) : {}; } catch {return send(res,400,{error:'invalid-json'});} send(res,201,{status:'created',id:'stub-payment',received:body});});" \
+            "    return;" \
+            "  }" \
+            "  send(res, 200, {message:'payment stub running', path:req.url});" \
+            "});" \
+            "server.listen(PORT, () => console.log('Payment stub listening on ' + PORT));" \
+        > /app/payment/server.js; \
+    fi && \
+    chmod +x /app/payment/server.js
 COPY --chown=nodejs:nodejs dreamscape-services/payment/package.json /app/payment/
 
 # Copy NGINX configuration
