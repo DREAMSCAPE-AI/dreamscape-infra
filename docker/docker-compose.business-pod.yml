@@ -196,6 +196,9 @@ volumes:
   business_pod_logs:
     name: dreamscape_business_pod_logs
     driver: local
+  nginx_logs:
+    name: dreamscape_business_nginx_logs
+    driver: local
   voyage_logs:
     name: dreamscape_business_voyage_logs
     driver: local
@@ -204,6 +207,9 @@ volumes:
     driver: local
   payment_logs:
     name: dreamscape_business_payment_logs
+    driver: local
+  user_uploads:
+    name: dreamscape_business_user_uploads
     driver: local
   ai_uploads:
     name: dreamscape_business_ai_uploads
