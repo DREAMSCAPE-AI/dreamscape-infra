@@ -112,7 +112,7 @@ RUN --mount=type=bind,source=dreamscape-services/payment/src/stub-server.js,targ
     if [ -f /tmp/payment_stub ]; then \
         cp /tmp/payment_stub /app/payment/server.js; \
     else \
-        cat > /app/payment/server.js <<'EOF'; \
+        cat <<'EOF' > /app/payment/server.js
 #!/usr/bin/env node
 const http = require('http');
 const PORT = parseInt(process.env.PORT || '3005', 10);
