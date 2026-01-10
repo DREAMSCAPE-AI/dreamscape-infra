@@ -9,25 +9,30 @@
 FROM node:20-alpine3.18 AS voyage-builder
 WORKDIR /app
 
-# Copy voyage service files
-COPY dreamscape-services/voyage/package.json dreamscape-services/voyage/tsconfig.json ./voyage/
+# Install shared Kafka dependencies
+COPY dreamscape-services/shared/kafka/package*.json ./shared/kafka/
+RUN cd shared/kafka && npm ci
 
-# Copy .tscaliasrc.json if exists
-COPY dreamscape-services/voyage/.tscaliasrc.json* ./voyage/
+# Install shared DB client and Prisma schema
+COPY dreamscape-services/db/package*.json ./db/
+RUN cd db && npm ci
+COPY dreamscape-services/db/prisma ./db/prisma
+
+# Copy voyage service files
+COPY dreamscape-services/voyage/package*.json dreamscape-services/voyage/tsconfig.json dreamscape-services/voyage/.tscaliasrc.json* ./voyage/
 
 WORKDIR /app/voyage
 ENV CYPRESS_INSTALL_BINARY=0
-RUN npm install --production=false
+ENV PRISMA_SCHEMA_PATH=/app/db/prisma/schema.prisma
+ENV DATABASE_URL=postgresql://dreamscape:password@postgres:5432/dreamscape
 
-# Install tsc-alias for path resolution at build time
-RUN npm install --save-dev tsc-alias
+RUN npm ci
 
-# Copy source and prisma
+# Copy source (ts) for build
 COPY dreamscape-services/voyage/src ./src
-COPY dreamscape-services/voyage/prisma ./prisma
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client using shared DB schema
+RUN npx prisma generate --schema $PRISMA_SCHEMA_PATH --output ./node_modules/.prisma/client
 
 # Build TypeScript and resolve path aliases
 RUN npm run build && npx tsc-alias -p tsconfig.json
