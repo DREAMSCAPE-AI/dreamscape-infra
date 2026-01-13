@@ -139,6 +139,11 @@ get_pod_ports() {
 
 get_pod_docker_compose() {
     local pod_name="$1"
+    if [[ -n "${BIGPODS_COMPOSE_FILE:-}" ]]; then
+        echo "$BIGPODS_COMPOSE_FILE"
+        return 0
+    fi
+
     get_config_value "bigpods.${pod_name}.docker_compose"
 }
 
@@ -190,17 +195,23 @@ detect_repository_changes() {
     local repo_name="$1"
     local repo_path
     repo_path=$(get_repository_path "$repo_name")
+    local current_dir
+    current_dir="$(pwd)"
 
     if [[ ! -d "$repo_path/.git" ]]; then
         log_warning "Not a git repository: $repo_path"
         return 1
     fi
 
-    cd "$repo_path"
+    if ! cd "$repo_path"; then
+        log_error "Failed to enter repository: $repo_path"
+        return 1
+    fi
 
     # Check for uncommitted changes
     if ! git diff-index --quiet HEAD --; then
         log_info "Uncommitted changes detected in $repo_name"
+        cd "$current_dir"
         return 0
     fi
 
@@ -210,9 +221,11 @@ detect_repository_changes() {
 
     if [[ "$ahead_count" -gt 0 ]]; then
         log_info "$ahead_count new commits in $repo_name"
+        cd "$current_dir"
         return 0
     fi
 
+    cd "$current_dir"
     return 1
 }
 

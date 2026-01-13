@@ -21,6 +21,19 @@ TOTAL_BUILD_TIME=0
 BUILDS_COMPLETED=0
 BUILDS_FAILED=0
 
+# Get the full image name for a pod, honoring registry env vars when set.
+get_pod_image_name() {
+    local pod_name="$1"
+    local registry_prefix=""
+    local namespace="${REGISTRY_NAMESPACE:-dreamscape}"
+
+    if [[ -n "${REGISTRY_URL:-}" ]]; then
+        registry_prefix="${REGISTRY_URL}/"
+    fi
+
+    echo "${registry_prefix}${namespace}/${pod_name}-pod"
+}
+
 # Usage function
 show_usage() {
     echo -e "${BLUE}${ROCKET_ICON} DreamScape Big Pods - Build Script${NC}"
@@ -234,8 +247,12 @@ build_pod() {
 
     # Check if build is needed with smart build
     if [[ "$SMART_BUILD" == "true" ]] && ! detect_changes "$pod_name"; then
-        log_success "$pod_name pod is up to date"
-        return 0
+        if [[ "$PUSH_IMAGES" == "true" ]]; then
+            log_info "Push requested - building $pod_name pod despite no changes"
+        else
+            log_success "$pod_name pod is up to date"
+            return 0
+        fi
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -249,6 +266,8 @@ build_pod() {
 
     if [[ ! -f "docker/$compose_file" ]]; then
         log_error "Docker Compose file not found: docker/$compose_file"
+        BUILDS_FAILED=$((BUILDS_FAILED + 1))
+        BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: missing compose file\n"
         return 1
     fi
 
@@ -282,7 +301,8 @@ build_pod() {
 
         # Tag with version if specified
         if [[ -n "$VERSION_TAG" ]]; then
-            local image_name="dreamscape/${pod_name}-pod"
+            local image_name
+            image_name=$(get_pod_image_name "$pod_name")
             docker tag "${image_name}:latest" "${image_name}:${VERSION_TAG}"
             log_success "Tagged $pod_name pod with version $VERSION_TAG"
         fi
@@ -316,7 +336,8 @@ push_pod_images() {
 
     log_info "Pushing $pod_name pod images..."
 
-    local image_name="dreamscape/${pod_name}-pod"
+    local image_name
+    image_name=$(get_pod_image_name "$pod_name")
 
     # Push latest tag
     if docker push "${image_name}:latest"; then

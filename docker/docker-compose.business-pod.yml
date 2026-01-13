@@ -18,7 +18,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-      - ./dreamscape-infra/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ../scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - business-pod-network
     healthcheck:
@@ -49,7 +49,7 @@ services:
   # Business Pod - Multi-service container with Supervisor
   business-pod:
     build:
-      context: ./dreamscape-infra/business-pod
+      context: ./business-pod
       dockerfile: Dockerfile
     container_name: dreamscape-business-pod
     restart: unless-stopped
@@ -102,7 +102,7 @@ services:
       - user_uploads:/app/user/uploads
       
       # Configuration files (for development)
-      - ./dreamscape-infra/business-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      - ./business-pod/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
       
       # Health status files (for external monitoring)
       - business_pod_status:/tmp
@@ -196,6 +196,9 @@ volumes:
   business_pod_logs:
     name: dreamscape_business_pod_logs
     driver: local
+  nginx_logs:
+    name: dreamscape_business_nginx_logs
+    driver: local
   voyage_logs:
     name: dreamscape_business_voyage_logs
     driver: local
@@ -204,6 +207,9 @@ volumes:
     driver: local
   payment_logs:
     name: dreamscape_business_payment_logs
+    driver: local
+  user_uploads:
+    name: dreamscape_business_user_uploads
     driver: local
   ai_uploads:
     name: dreamscape_business_ai_uploads
