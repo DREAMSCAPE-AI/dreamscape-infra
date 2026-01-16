@@ -7,10 +7,16 @@
 FROM node:20-alpine AS auth-builder
 WORKDIR /app
 
-# Copier shared modules d'abord
+# Copier et compiler les shared modules d'abord
 COPY dreamscape-services/shared ./shared
 
-# Copier et installer le workspace db d'abord
+# Installer les dépendances du module kafka
+WORKDIR /app/shared/kafka
+RUN npm install --production=false
+RUN npm run build
+
+# Copier et installer le workspace db
+WORKDIR /app
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
 WORKDIR /app/db
 RUN npm install --production=false
@@ -44,10 +50,16 @@ RUN npx tsc
 FROM node:20-alpine AS user-builder
 WORKDIR /app
 
-# Copier shared modules d'abord
+# Copier et compiler les shared modules d'abord
 COPY dreamscape-services/shared ./shared
 
-# Copier et installer le workspace db d'abord
+# Installer les dépendances du module kafka
+WORKDIR /app/shared/kafka
+RUN npm install --production=false
+RUN npm run build
+
+# Copier et installer le workspace db
+WORKDIR /app
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
 WORKDIR /app/db
 RUN npm install --production=false
@@ -124,9 +136,12 @@ COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/package.json /app/auth/
 # Créer tsconfig.json runtime pour auth
 RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/types/index.js"],"@services/*":["dist/services/*"],"@middleware/*":["dist/middleware/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/auth/tsconfig.json
 
-# Créer symlink @dreamscape/db pour auth
-RUN rm -f /app/auth/node_modules/@dreamscape/db && \
-    ln -sf ../../db /app/auth/node_modules/@dreamscape/db
+# Créer symlinks @dreamscape/* pour auth
+RUN mkdir -p /app/auth/node_modules/@dreamscape && \
+    rm -f /app/auth/node_modules/@dreamscape/db && \
+    ln -sf ../../db /app/auth/node_modules/@dreamscape/db && \
+    rm -f /app/auth/node_modules/@dreamscape/kafka && \
+    ln -sf ../../shared/kafka /app/auth/node_modules/@dreamscape/kafka
 
 # Copy User Service built artifacts
 COPY --from=user-builder --chown=nodejs:nodejs /app/user/dist /app/user/dist
@@ -136,9 +151,12 @@ COPY --from=user-builder --chown=nodejs:nodejs /app/user/package.json /app/user/
 # Créer tsconfig.json runtime pour user
 RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/types/index.js"],"@services/*":["dist/services/*"],"@middleware/*":["dist/middleware/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/user/tsconfig.json
 
-# Créer symlink @dreamscape/db pour user
-RUN rm -f /app/user/node_modules/@dreamscape/db && \
-    ln -sf ../../db /app/user/node_modules/@dreamscape/db
+# Créer symlinks @dreamscape/* pour user
+RUN mkdir -p /app/user/node_modules/@dreamscape && \
+    rm -f /app/user/node_modules/@dreamscape/db && \
+    ln -sf ../../db /app/user/node_modules/@dreamscape/db && \
+    rm -f /app/user/node_modules/@dreamscape/kafka && \
+    ln -sf ../../shared/kafka /app/user/node_modules/@dreamscape/kafka
 
 # Copy NGINX configuration
 COPY --chown=nginx:nginx dreamscape-infra/docker/core-pod/nginx/nginx.conf /etc/nginx/nginx.conf
