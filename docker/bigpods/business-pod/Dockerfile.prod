@@ -15,6 +15,7 @@ RUN cd shared/kafka && if [ -f package-lock.json ]; then npm ci; else npm instal
 
 # Shared DB client: install deps + Prisma generate + migrate deploy
 COPY dreamscape-services/db ./db
+ENV DATABASE_URL=postgresql://postgres:root@localhost:5432/dreamscape_db?schema=public
 RUN cd db && \
     npm install && \
     npx prisma generate && \
