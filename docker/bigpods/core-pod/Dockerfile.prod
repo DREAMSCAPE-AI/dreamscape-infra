@@ -21,7 +21,7 @@ RUN npm run build
 
 # Retourner à /app pour le service auth
 WORKDIR /app
-COPY dreamscape-services/auth/package*.json dreamscape-services/auth/tsconfig.json dreamscape-services/auth/tsconfig.build.json ./auth/
+COPY dreamscape-services/auth/package*.json dreamscape-services/auth/tsconfig*.json ./auth/
 
 # Installer les dépendances auth
 WORKDIR /app/auth
@@ -55,7 +55,7 @@ RUN npm run build
 
 # Retourner à /app pour le service user
 WORKDIR /app
-COPY dreamscape-services/user/package*.json dreamscape-services/user/tsconfig.json dreamscape-services/user/tsconfig.build.json ./user/
+COPY dreamscape-services/user/package*.json dreamscape-services/user/tsconfig*.json ./user/
 
 # Installer les dépendances user
 WORKDIR /app/user
