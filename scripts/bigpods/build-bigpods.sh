@@ -184,6 +184,33 @@ check_prerequisites() {
     fi
 }
 
+# Ensure required repositories are present (clones dreamscape-services if missing)
+ensure_build_dependencies() {
+    local repo_path
+    repo_path=$(get_repository_path "dreamscape-services")
+
+    if [[ -d "$repo_path" ]]; then
+        log_debug "Dependency repository present: $repo_path"
+        return 0
+    fi
+
+    log_warning "Missing repository: $repo_path"
+
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        log_error "GITHUB_TOKEN not set. Cannot clone dreamscape-services automatically."
+        return 1
+    fi
+
+    log_info "Cloning dreamscape-services..."
+    if git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/DREAMSCAPE-AI/dreamscape-services.git" "$repo_path"; then
+        log_success "Cloned dreamscape-services into $repo_path"
+        return 0
+    else
+        log_error "Failed to clone dreamscape-services into $repo_path"
+        return 1
+    fi
+}
+
 # Detect changes in repositories
 detect_changes() {
     local pod_name="$1"
@@ -244,6 +271,14 @@ build_pod() {
     start_time=$(date +%s)
 
     log_info "Building $pod_name pod..."
+
+    # Ensure dependent repos exist (e.g., dreamscape-services for shared/kafka and Prisma schema)
+    if [[ "$pod_name" == "business" ]]; then
+        if ! ensure_build_dependencies; then
+            log_error "Dependency preparation failed for $pod_name pod"
+            return 1
+        fi
+    fi
 
     # Check if build is needed with smart build
     if [[ "$SMART_BUILD" == "true" ]] && ! detect_changes "$pod_name"; then
