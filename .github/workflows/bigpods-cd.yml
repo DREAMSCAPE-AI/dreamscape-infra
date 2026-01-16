@@ -38,6 +38,11 @@ concurrency:
   group: deployment-${{ github.ref }}
   cancel-in-progress: false
 
+# Permissions needed for GHCR push
+permissions:
+  contents: read
+  packages: write
+
 env:
   # Deployment Configuration
   DOCKER_BUILDKIT: 1
