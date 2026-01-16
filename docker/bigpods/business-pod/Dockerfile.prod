@@ -9,9 +9,9 @@
 FROM node:20-alpine3.18 AS voyage-builder
 WORKDIR /app
 
-# Install shared Kafka dependencies
-COPY dreamscape-services/shared/kafka/package*.json ./shared/kafka/
-RUN cd shared/kafka && npm ci
+# Install shared Kafka dependencies (falls back to npm install if lockfile missing)
+COPY dreamscape-services/shared/kafka/package.json dreamscape-services/shared/kafka/package-lock.json* ./shared/kafka/
+RUN cd shared/kafka && if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Install shared DB client and Prisma schema
 COPY dreamscape-services/db/package*.json ./db/
