@@ -13,9 +13,11 @@ WORKDIR /app
 COPY dreamscape-services/shared/kafka/package.json dreamscape-services/shared/kafka/package-lock.json* ./shared/kafka/
 RUN cd shared/kafka && if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# Shared DB client: only run Prisma generate (pas d'installation complète)
+# Shared DB client: run Prisma generate + migrate deploy (pas d'installation complète)
 COPY dreamscape-services/db ./db
-RUN cd db && npx prisma@6.17.1 generate --schema prisma/schema.prisma
+RUN cd db && \
+    npx prisma generate && \
+    npx prisma migrate deploy
 
 # Copy voyage service files
 COPY dreamscape-services/voyage/package*.json dreamscape-services/voyage/tsconfig.json dreamscape-services/voyage/.tscaliasrc.json* ./voyage/
