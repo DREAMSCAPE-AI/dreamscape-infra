@@ -46,7 +46,7 @@ env:
 
   # Registry Configuration
   REGISTRY_URL: ghcr.io
-  REGISTRY_NAMESPACE: dreamscape
+  REGISTRY_NAMESPACE: dreamscape-ai
 
   # Monitoring Configuration
   MONITORING_ENABLED: true
