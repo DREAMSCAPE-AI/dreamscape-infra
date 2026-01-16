@@ -7,6 +7,9 @@
 FROM node:20-alpine AS auth-builder
 WORKDIR /app
 
+# Copier shared modules d'abord
+COPY dreamscape-services/shared ./shared
+
 # Copier et installer le workspace db d'abord
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
 WORKDIR /app/db
@@ -40,6 +43,9 @@ RUN npx tsc
 # Stage 2: Build User Service
 FROM node:20-alpine AS user-builder
 WORKDIR /app
+
+# Copier shared modules d'abord
+COPY dreamscape-services/shared ./shared
 
 # Copier et installer le workspace db d'abord
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
@@ -103,6 +109,9 @@ RUN mkdir -p \
 # Create users
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
+
+# Copy shared modules
+COPY --from=auth-builder --chown=nodejs:nodejs /app/shared /app/shared
 
 # Copy shared DB workspace
 COPY --from=auth-builder --chown=nodejs:nodejs /app/db /app/db
