@@ -311,24 +311,23 @@ build_pod() {
     # Prepare build command
     local compose_cmd
     compose_cmd=$(check_docker_compose)
-    local build_cmd="$compose_cmd -f $full_compose_path build"
+    local DOCKER_DIR="../../docker"
 
-    # Add build options
+    local build_options=""
     if [[ "$NO_CACHE" == "true" ]]; then
-        build_cmd="$build_cmd --no-cache"
+        build_options="$build_options --no-cache"
     fi
 
     if [[ "$PARALLEL_BUILD" == "true" ]]; then
-        build_cmd="$build_cmd --parallel"
+        build_options="$build_options --parallel"
     fi
 
-    # Add service name
-    build_cmd="$build_cmd ${pod_name}-pod"
+    local full_build_cmd="cd '$DOCKER_DIR' && $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
 
-    log_verbose "Build command: $build_cmd"
+    log_verbose "Build command: $full_build_cmd"
 
     # Execute build with timeout
-    if timeout "$BUILD_TIMEOUT" bash -c "$build_cmd"; then
+    if timeout "$BUILD_TIMEOUT" bash -c "$full_build_cmd"; then
         local end_time
         end_time=$(date +%s)
         local build_time=$((end_time - start_time))
