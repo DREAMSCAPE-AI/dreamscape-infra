@@ -15,6 +15,11 @@ WORKDIR /app/shared/kafka
 RUN npm install --production=false
 RUN npm run build
 
+# Installer pg et redis pour le module health
+WORKDIR /app/shared
+RUN npm init -y && \
+    npm install pg redis @types/pg @types/redis --save
+
 # Copier et installer le workspace db
 WORKDIR /app
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
@@ -45,6 +50,11 @@ RUN npm install --save tsconfig-paths && \
 COPY dreamscape-services/auth/src/ ./src/
 COPY dreamscape-services/auth/prisma ./prisma
 
+# Créer symlink pour pg et redis depuis shared
+RUN ln -sf ../../shared/node_modules/pg ./node_modules/pg && \
+    ln -sf ../../shared/node_modules/redis ./node_modules/redis && \
+    ln -sf ../../shared/node_modules/@types ./node_modules/@types-shared
+
 # Builder le TypeScript
 RUN npx tsc
 
@@ -59,6 +69,11 @@ COPY dreamscape-services/shared ./shared
 WORKDIR /app/shared/kafka
 RUN npm install --production=false
 RUN npm run build
+
+# Installer pg et redis pour le module health
+WORKDIR /app/shared
+RUN npm init -y && \
+    npm install pg redis @types/pg @types/redis --save
 
 # Copier et installer le workspace db
 WORKDIR /app
@@ -89,6 +104,11 @@ RUN npm install --save tsconfig-paths && \
 # Copier le code source (exclure activities.ts)
 COPY dreamscape-services/user/src/ ./src/
 RUN rm -f ./src/routes/activities.ts 2>/dev/null || true
+
+# Créer symlink pour pg et redis depuis shared
+RUN ln -sf ../../shared/node_modules/pg ./node_modules/pg && \
+    ln -sf ../../shared/node_modules/redis ./node_modules/redis && \
+    ln -sf ../../shared/node_modules/@types ./node_modules/@types-shared
 
 # Builder le TypeScript
 RUN npx tsc
