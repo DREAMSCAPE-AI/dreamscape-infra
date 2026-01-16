@@ -17,7 +17,6 @@ RUN cd shared/kafka && npm install
 
 # Shared DB client: install deps + Prisma generate (migrations run at runtime)
 COPY dreamscape-services/db ./db
-ENV DATABASE_URL=postgresql://postgres:root@localhost:5432/dreamscape_db?schema=public
 RUN cd db && \
     npm install && \
     npx prisma generate
