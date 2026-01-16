@@ -299,20 +299,19 @@ build_pod() {
     local compose_file
     compose_file=$(get_pod_docker_compose "$pod_name")
 
-    if [[ ! -f "docker/$compose_file" ]]; then
-        log_error "Docker Compose file not found: docker/$compose_file"
+    local full_compose_path="../../docker/$compose_file"
+
+    if [[ ! -f "$full_compose_path" ]]; then
+        log_error "Docker Compose file not found: $full_compose_path"
         BUILDS_FAILED=$((BUILDS_FAILED + 1))
         BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: missing compose file\n"
         return 1
     fi
 
-    # Change to docker directory
-    cd ../../docker
-
     # Prepare build command
     local compose_cmd
     compose_cmd=$(check_docker_compose)
-    local build_cmd="$compose_cmd -f $compose_file build"
+    local build_cmd="$compose_cmd -f $full_compose_path build"
 
     # Add build options
     if [[ "$NO_CACHE" == "true" ]]; then
@@ -354,13 +353,11 @@ build_pod() {
         # Add to build stats
         BUILD_STATS="${BUILD_STATS}${SUCCESS_ICON} $pod_name: ${build_time}s\n"
 
-        cd ..
         return 0
     else
         log_error "$pod_name pod build failed or timed out"
         BUILDS_FAILED=$((BUILDS_FAILED + 1))
         BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: FAILED\n"
-        cd ..
         return 1
     fi
 }
