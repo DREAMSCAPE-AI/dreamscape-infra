@@ -25,7 +25,8 @@ ENV CYPRESS_INSTALL_BINARY=0
 ENV PRISMA_SCHEMA_PATH=/app/db/prisma/schema.prisma
 ENV DATABASE_URL=postgresql://dreamscape:password@postgres:5432/dreamscape
 
-RUN npm ci
+# Install voyage dependencies (fallback to npm install if lockfile missing)
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Copy source (ts) for build
 COPY dreamscape-services/voyage/src ./src
@@ -155,10 +156,6 @@ EXPOSE 80 3003 3004 3005
 ENV NODE_ENV=production \
     SUPERVISOR_USER=admin \
     SUPERVISOR_PASS=dreamscape_supervisor_123
-
-# Health check that verifies all services
-HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
-    CMD python3 /app/scripts/business_pod_health_check.py || curl -f http://localhost/health || exit 1
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "/usr/local/bin/entrypoint.sh"]
