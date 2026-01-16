@@ -272,7 +272,7 @@ build_pod() {
     fi
 
     # Change to docker directory
-    cd docker
+    cd ../../docker
 
     # Prepare build command
     local compose_cmd
