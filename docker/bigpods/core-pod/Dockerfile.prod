@@ -34,8 +34,8 @@ RUN npm install --save tsconfig-paths
 COPY dreamscape-services/auth/src/ ./src/
 COPY dreamscape-services/auth/prisma ./prisma
 
-# Builder le TypeScript avec tsconfig.build.json
-RUN npx tsc -p tsconfig.build.json
+# Builder le TypeScript
+RUN npx tsc
 
 # Stage 2: Build User Service
 FROM node:20-alpine AS user-builder
@@ -68,8 +68,8 @@ RUN npm install --save tsconfig-paths
 COPY dreamscape-services/user/src/ ./src/
 RUN rm -f ./src/routes/activities.ts 2>/dev/null || true
 
-# Builder le TypeScript avec tsconfig.build.json
-RUN npx tsc -p tsconfig.build.json
+# Builder le TypeScript
+RUN npx tsc
 
 # Stage 3: Final Multi-Service Runtime
 FROM node:20-alpine AS runtime
