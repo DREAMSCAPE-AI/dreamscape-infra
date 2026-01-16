@@ -36,8 +36,10 @@ COPY dreamscape-services/auth/package*.json dreamscape-services/auth/tsconfig*.j
 WORKDIR /app/auth
 RUN npm install --production=false
 
-# Installer tsconfig-paths pour le runtime
-RUN npm install --save tsconfig-paths
+# Installer tsconfig-paths et dépendances pour shared/health
+RUN npm install --save tsconfig-paths && \
+    npm install --save-dev @types/pg && \
+    npm install --save pg redis
 
 # Copier le code source
 COPY dreamscape-services/auth/src/ ./src/
@@ -79,8 +81,10 @@ COPY dreamscape-services/user/package*.json dreamscape-services/user/tsconfig*.j
 WORKDIR /app/user
 RUN npm install --production=false
 
-# Installer tsconfig-paths pour le runtime
-RUN npm install --save tsconfig-paths
+# Installer tsconfig-paths et dépendances pour shared/health
+RUN npm install --save tsconfig-paths && \
+    npm install --save-dev @types/pg && \
+    npm install --save pg redis
 
 # Copier le code source (exclure activities.ts)
 COPY dreamscape-services/user/src/ ./src/
