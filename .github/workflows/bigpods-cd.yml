@@ -38,11 +38,6 @@ concurrency:
   group: deployment-${{ github.ref }}
   cancel-in-progress: false
 
-# Permissions needed for GHCR push
-permissions:
-  contents: read
-  packages: write
-
 env:
   # Deployment Configuration
   DOCKER_BUILDKIT: 1
@@ -51,7 +46,7 @@ env:
 
   # Registry Configuration
   REGISTRY_URL: ghcr.io
-  REGISTRY_NAMESPACE: dreamscape-ai
+  REGISTRY_NAMESPACE: dreamscape
 
   # Monitoring Configuration
   MONITORING_ENABLED: true
@@ -255,6 +250,31 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
+      - name: 🔑 Configure Kubernetes Access
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
+        run: |
+          echo "🔑 Configuring kubeconfig for K3s..."
+
+          if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
+            echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh ~/.kube
+          echo "$K3S_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
+
+          # Fetch kubeconfig from the remote K3s server and point it to the public endpoint
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
+            "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
+          sed -i "s/127.0.0.1/$K3S_HOST/g" ~/.kube/config
+
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          kubectl cluster-info
+
       - name: 🚀 Deploy to Staging
         working-directory: scripts/bigpods
         timeout-minutes: 15
@@ -345,6 +365,30 @@ jobs:
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+
+      - name: 🔑 Configure Kubernetes Access
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
+        run: |
+          echo "🔑 Configuring kubeconfig for K3s..."
+
+          if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
+            echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh ~/.kube
+          echo "$K3S_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
+            "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
+          sed -i "s/127.0.0.1/$K3S_HOST/g" ~/.kube/config
+
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          kubectl cluster-info
 
       - name: 🛡️ Pre-production Validation
         working-directory: scripts/bigpods
