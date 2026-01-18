@@ -23,6 +23,21 @@ HEALTH_CHECK_RETRIES=20
 HEALTH_CHECK_INTERVAL=15
 PARALLEL_DEPLOYMENT=false
 
+# Build image name helper to stay aligned with build script env vars
+get_pod_image_name() {
+    local pod_name="$1"
+    local version_tag="${2:-${DEPLOYMENT_VERSION:-latest}}"
+
+    local registry_prefix=""
+    local namespace="${REGISTRY_NAMESPACE:-dreamscape}"
+
+    if [[ -n "${REGISTRY_URL:-}" ]]; then
+        registry_prefix="${REGISTRY_URL}/"
+    fi
+
+    echo "${registry_prefix}${namespace}/${pod_name}-pod:${version_tag}"
+}
+
 # Notification settings
 SLACK_WEBHOOK=""
 TEAMS_WEBHOOK=""
@@ -321,10 +336,11 @@ validate_deployment() {
     # Validate version tag if specified
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
         for pod_name in "${PODS_TO_DEPLOY[@]}"; do
-            local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+            local image_name
+            image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
 
             if ! docker manifest inspect "$image_name" >/dev/null 2>&1; then
-                log_warn "docker manifest inspect failed for $image_name. Attempting fallback validation with docker pull..."
+                log_warning "docker manifest inspect failed for $image_name. Attempting fallback validation with docker pull..."
                 if ! docker pull "$image_name" >/dev/null 2>&1; then
                     log_error "Image not found or inaccessible: $image_name. Both docker manifest inspect and docker pull failed. Please check registry type, authentication, and image existence."
                     return 1
@@ -427,7 +443,8 @@ deploy_local_rolling() {
 
     # Update images
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
-        local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+        local image_name
+        image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
         log_info "Pulling image: $image_name"
         docker pull "$image_name"
     fi
@@ -455,7 +472,8 @@ deploy_k8s_rolling() {
 
     # Update deployment image
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
-        local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+        local image_name
+        image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
 
         log_info "Updating deployment image: $image_name"
         kubectl set image deployment/"$deployment_name" \
@@ -527,7 +545,8 @@ deploy_k8s_blue_green() {
 
     # Deploy to inactive environment
     local target_deployment="dreamscape-${pod_name}-pod-${new_deployment}"
-    local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION:-latest}"
+    local image_name
+    image_name="$(get_pod_image_name "$pod_name")"
 
     # Update deployment
     kubectl set image deployment/"$target_deployment" \
@@ -596,7 +615,8 @@ deploy_k8s_canary() {
     local canary_deployment="dreamscape-${pod_name}-pod-canary"
 
     # Deploy canary version
-    local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION:-latest}"
+    local image_name
+    image_name="$(get_pod_image_name "$pod_name")"
 
     kubectl set image deployment/"$canary_deployment" \
             "${pod_name}-pod=$image_name" \
@@ -758,7 +778,11 @@ rollback_local() {
 
     # Get previous image
     local previous_image
-    previous_image=$(docker images "dreamscape/${pod_name}-pod" --format "table {{.Tag}}" | sed -n 2p)
+    local image_repo
+    image_repo="$(get_pod_image_name "$pod_name" "latest")"
+    image_repo="${image_repo%:*}"
+
+    previous_image=$(docker images "$image_repo" --format "table {{.Tag}}" | sed -n 2p)
 
     if [[ -n "$previous_image" ]] && [[ "$previous_image" != "TAG" ]]; then
         log_info "Rolling back to previous image: $previous_image"

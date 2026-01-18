@@ -241,6 +241,13 @@ jobs:
         run: |
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔧 Setup Deployment Environment
         run: |
           echo "🔧 Setting up staging deployment environment..."
@@ -387,6 +394,13 @@ jobs:
       - name: Ensure bigpods scripts executable
         run: |
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🔧 Setup Production Environment
         run: |
