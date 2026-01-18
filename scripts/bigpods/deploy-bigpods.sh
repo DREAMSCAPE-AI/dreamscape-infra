@@ -468,7 +468,8 @@ deploy_k8s_rolling() {
     local namespace
     namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
 
-    local deployment_name="dreamscape-${pod_name}-pod"
+    local deployment_name
+    deployment_name=$(resolve_deployment_name "$pod_name") || return 1
 
     # Update deployment image
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
@@ -477,7 +478,7 @@ deploy_k8s_rolling() {
 
         log_info "Updating deployment image: $image_name"
         kubectl set image deployment/"$deployment_name" \
-                "${pod_name}-pod=$image_name" \
+                "*=$image_name" \
                 -n "$namespace"
     else
         # Restart deployment
@@ -550,7 +551,7 @@ deploy_k8s_blue_green() {
 
     # Update deployment
     kubectl set image deployment/"$target_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Wait for new deployment to be ready
@@ -619,7 +620,7 @@ deploy_k8s_canary() {
     image_name="$(get_pod_image_name "$pod_name")"
 
     kubectl set image deployment/"$canary_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Scale canary deployment
@@ -659,7 +660,7 @@ deploy_k8s_canary() {
     # Promote canary to stable
     log_info "Promoting canary to stable..."
     kubectl set image deployment/"$stable_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Wait for stable deployment update
@@ -754,6 +755,52 @@ get_pod_services_detailed() {
     esac
 }
 
+# Resolve the actual deployment name in the target namespace for a given pod.
+# This tries a small set of known naming patterns to align with already-created resources.
+resolve_deployment_name() {
+    local pod_name="$1"
+    local namespace
+    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+
+    local candidates=()
+    case "$pod_name" in
+        "core")
+            candidates=(
+                "dreamscape-core-pod"
+                "core-pod"
+                "core"
+                "auth-service"
+            )
+            ;;
+        "business")
+            candidates=(
+                "dreamscape-business-pod"
+                "business-pod"
+                "business"
+                "voyage-service"
+            )
+            ;;
+        "experience")
+            candidates=(
+                "dreamscape-experience-pod"
+                "experience-pod"
+                "experience"
+                "gateway-service"
+            )
+            ;;
+    esac
+
+    for candidate in "${candidates[@]}"; do
+        if kubectl get deployment "$candidate" -n "$namespace" >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    log_error "Deployment not found for pod '$pod_name' in namespace '$namespace'. Tried: ${candidates[*]}"
+    return 1
+}
+
 # Rollback deployment
 rollback_deployment() {
     local pod_name="$1"
@@ -813,7 +860,8 @@ rollback_k8s() {
     local namespace
     namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
 
-    local deployment_name="dreamscape-${pod_name}-pod"
+    local deployment_name
+    deployment_name=$(resolve_deployment_name "$pod_name") || return 1
 
     log_info "Rolling back Kubernetes deployment..."
     kubectl rollout undo deployment/"$deployment_name" -n "$namespace"
