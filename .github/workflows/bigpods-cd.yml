@@ -255,7 +255,7 @@ jobs:
           K3S_HOST: ${{ secrets.K3S_HOST }}
           K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
         run: |
-          echo "🔑 Configuring kubeconfig for K3s..."
+          echo "🔑 Configuring kubeconfig for K3s via SSH tunnel..."
 
           if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
             echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
@@ -267,13 +267,44 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
 
-          # Fetch kubeconfig from the remote K3s server and point it to the public endpoint
+          LOCAL_API_PORT=7443
+
+          # Fetch kubeconfig from the remote K3s server
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
             "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
-          sed -i "s/127.0.0.1/$K3S_HOST/g" ~/.kube/config
+
+          # Point kubeconfig to the local forwarded port
+          sed -i "s|127.0.0.1:6443|127.0.0.1:${LOCAL_API_PORT}|g" ~/.kube/config
+
+          # Start SSH tunnel to the K3s API server
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=no \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
+            -f -N -L ${LOCAL_API_PORT}:127.0.0.1:6443 \
+            ubuntu@"$K3S_HOST"
 
           echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
-          kubectl cluster-info
+          echo "K3S_TUNNEL_PORT=${LOCAL_API_PORT}" >> $GITHUB_ENV
+
+          # Verify connectivity with retries to avoid transient tunnel failures
+          success=false
+          for attempt in {1..5}; do
+            if kubectl cluster-info >/dev/null 2>&1; then
+              kubectl cluster-info
+              success=true
+              break
+            fi
+
+            echo "Waiting for Kubernetes API via SSH tunnel (attempt $attempt/5)..."
+            sleep 5
+          done
+
+          if [[ "$success" != "true" ]]; then
+            echo "::error::Unable to reach Kubernetes API via SSH tunnel"
+            exit 1
+          fi
 
       - name: 🚀 Deploy to Staging
         working-directory: scripts/bigpods
@@ -371,7 +402,7 @@ jobs:
           K3S_HOST: ${{ secrets.K3S_HOST }}
           K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
         run: |
-          echo "🔑 Configuring kubeconfig for K3s..."
+          echo "🔑 Configuring kubeconfig for K3s via SSH tunnel..."
 
           if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
             echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
@@ -383,12 +414,42 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
 
+          LOCAL_API_PORT=7443
+
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
             "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
-          sed -i "s/127.0.0.1/$K3S_HOST/g" ~/.kube/config
+
+          # Point kubeconfig to the local forwarded port
+          sed -i "s|127.0.0.1:6443|127.0.0.1:${LOCAL_API_PORT}|g" ~/.kube/config
+
+          # Start SSH tunnel to the K3s API server
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=no \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
+            -f -N -L ${LOCAL_API_PORT}:127.0.0.1:6443 \
+            ubuntu@"$K3S_HOST"
 
           echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
-          kubectl cluster-info
+          echo "K3S_TUNNEL_PORT=${LOCAL_API_PORT}" >> $GITHUB_ENV
+
+          success=false
+          for attempt in {1..5}; do
+            if kubectl cluster-info >/dev/null 2>&1; then
+              kubectl cluster-info
+              success=true
+              break
+            fi
+
+            echo "Waiting for Kubernetes API via SSH tunnel (attempt $attempt/5)..."
+            sleep 5
+          done
+
+          if [[ "$success" != "true" ]]; then
+            echo "::error::Unable to reach Kubernetes API via SSH tunnel"
+            exit 1
+          fi
 
       - name: 🛡️ Pre-production Validation
         working-directory: scripts/bigpods
