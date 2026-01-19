@@ -23,6 +23,9 @@ HEALTH_CHECK_RETRIES=20
 HEALTH_CHECK_INTERVAL=15
 PARALLEL_DEPLOYMENT=false
 
+# Resolved namespace for deployments (may differ from configured if resources exist elsewhere)
+RESOLVED_NAMESPACE=""
+
 # Build image name helper to stay aligned with build script env vars
 get_pod_image_name() {
     local pod_name="$1"
@@ -465,11 +468,9 @@ deploy_k8s_rolling() {
 
     log_info "Rolling update for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
-
     local deployment_name
     deployment_name=$(resolve_deployment_name "$pod_name") || return 1
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     # Update deployment image
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
@@ -523,8 +524,7 @@ deploy_k8s_blue_green() {
 
     log_info "Blue-green deployment for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     local blue_deployment="dreamscape-${pod_name}-pod-blue"
     local green_deployment="dreamscape-${pod_name}-pod-green"
@@ -609,8 +609,7 @@ deploy_k8s_canary() {
 
     log_info "Canary deployment for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     local stable_deployment="dreamscape-${pod_name}-pod-stable"
     local canary_deployment="dreamscape-${pod_name}-pod-canary"
@@ -762,6 +761,14 @@ resolve_deployment_name() {
     local namespace
     namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
 
+    RESOLVED_NAMESPACE="$namespace"
+
+    # If the namespace does not exist, note it but continue to search globally.
+    if ! kubectl get namespace "$namespace" >/dev/null 2>&1; then
+        log_warning "Namespace '$namespace' not found. Searching deployments across namespaces."
+        RESOLVED_NAMESPACE="default"
+    fi
+
     local candidates=()
     case "$pod_name" in
         "core")
@@ -769,6 +776,8 @@ resolve_deployment_name() {
                 "dreamscape-core-pod"
                 "core-pod"
                 "core"
+                "auth-service"
+                "user-service"
                 "auth-service"
             )
             ;;
@@ -778,6 +787,9 @@ resolve_deployment_name() {
                 "business-pod"
                 "business"
                 "voyage-service"
+                "payment-service"
+                "ai-service"
+                "voyage-service"
             )
             ;;
         "experience")
@@ -786,18 +798,31 @@ resolve_deployment_name() {
                 "experience-pod"
                 "experience"
                 "gateway-service"
+                "panorama-service"
+                "web-client-service"
+                "gateway-service"
             )
             ;;
     esac
 
     for candidate in "${candidates[@]}"; do
-        if kubectl get deployment "$candidate" -n "$namespace" >/dev/null 2>&1; then
+        # First try configured (or fallback) namespace
+        if kubectl get deployment "$candidate" -n "$RESOLVED_NAMESPACE" >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+
+        # Then search all namespaces for this deployment name
+        local found_ns
+        found_ns=$(kubectl get deployment "$candidate" -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || echo "")
+        if [[ -n "$found_ns" ]]; then
+            RESOLVED_NAMESPACE="$found_ns"
             echo "$candidate"
             return 0
         fi
     done
 
-    log_error "Deployment not found for pod '$pod_name' in namespace '$namespace'. Tried: ${candidates[*]}"
+    log_error "Deployment not found for pod '$pod_name'. Tried: ${candidates[*]} in namespace '$namespace' and cluster-wide."
     return 1
 }
 
@@ -857,11 +882,9 @@ rollback_local() {
 rollback_k8s() {
     local pod_name="$1"
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
-
     local deployment_name
     deployment_name=$(resolve_deployment_name "$pod_name") || return 1
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     log_info "Rolling back Kubernetes deployment..."
     kubectl rollout undo deployment/"$deployment_name" -n "$namespace"

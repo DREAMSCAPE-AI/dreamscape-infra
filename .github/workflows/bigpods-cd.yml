@@ -313,6 +313,10 @@ jobs:
             exit 1
           fi
 
+      - name: 📦 Bootstrap staging k8s resources
+        run: |
+          kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
+
       - name: 🚀 Deploy to Staging
         working-directory: scripts/bigpods
         timeout-minutes: 15
