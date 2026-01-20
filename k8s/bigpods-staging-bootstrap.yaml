@@ -22,7 +22,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          args: ["redis-server","--appendonly","yes"]
+          args: ["redis-server","--appendonly","yes","--requirepass","redis_staging_password_123"]
           ports:
             - containerPort: 6379
 ---
@@ -122,7 +122,9 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://dreamscape-redis:6379
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: REDIS_PASSWORD
+              value: "redis_staging_password_123"
             - name: JWT_SECRET
               value: dev-jwt-secret
             - name: JWT_REFRESH_SECRET
@@ -192,7 +194,9 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://dreamscape-redis:6379
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: REDIS_PASSWORD
+              value: "redis_staging_password_123"
             - name: JWT_SECRET
               value: dev-jwt-secret
             - name: JWT_REFRESH_SECRET
@@ -263,7 +267,7 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://dreamscape-redis:6379
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: S3_ENDPOINT
               value: http://minio:9000
             - name: S3_BUCKET
@@ -337,7 +341,7 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://dreamscape-redis:6379
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
               value: http://dreamscape-gateway-service:3000
             - name: STRIPE_SECRET_KEY
@@ -401,7 +405,7 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://dreamscape-redis:6379
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
               value: http://dreamscape-web-client-service:5173
             - name: CORS_ORIGIN
