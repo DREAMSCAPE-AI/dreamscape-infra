@@ -476,7 +476,7 @@ spec:
     app: gateway-service
   ports:
     - port: 3000
-      targetPort: 3000
+      targetPort: 3007
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -549,5 +549,5 @@ spec:
   selector:
     app: web-client-service
   ports:
-    - port: 5173
-      targetPort: 5173
+    - port: 80
+      targetPort: 80
