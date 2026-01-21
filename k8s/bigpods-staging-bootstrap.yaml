@@ -1,0 +1,567 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+---
+# Redis (single node)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dreamscape-redis
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dreamscape-redis
+  template:
+    metadata:
+      labels:
+        app: dreamscape-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server","--appendonly","yes","--requirepass","redis_staging_password_123"]
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-redis
+  namespace: staging
+spec:
+  selector:
+    app: dreamscape-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# PostgreSQL (single node)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dreamscape-postgres
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dreamscape-postgres
+  template:
+    metadata:
+      labels:
+        app: dreamscape-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_DB
+              value: dreamscape
+            - name: POSTGRES_USER
+              value: dreamscape_user
+            - name: POSTGRES_PASSWORD
+              value: dreamscape_password
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-postgres
+  namespace: staging
+spec:
+  selector:
+    app: dreamscape-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# Core services (auth + user)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: ghcr.io/dreamscape-ai/core-pod:latest
+          ports:
+            - containerPort: 3001
+          env:
+            - name: NODE_ENV
+              value: staging
+            - name: PORT
+              value: "3001"
+            - name: DATABASE_URL
+              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+            - name: DB_HOST
+              value: dreamscape-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: dreamscape_user
+            - name: DB_PASSWORD
+              value: dreamscape_password
+            - name: DB_NAME
+              value: dreamscape
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: REDIS_PASSWORD
+              value: "redis_staging_password_123"
+            - name: JWT_SECRET
+              value: dev-jwt-secret
+            - name: JWT_REFRESH_SECRET
+              value: dev-jwt-secret
+            - name: CLIENT_URL
+              value: http://dreamscape-web-client-service:5173
+            - name: CORS_ORIGIN
+              value: http://dreamscape-web-client-service:5173
+            - name: AMADEUS_API_KEY
+              value: amadeus_test_key
+            - name: AMADEUS_API_SECRET
+              value: amadeus_test_secret
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-auth-service
+  namespace: staging
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: ghcr.io/dreamscape-ai/core-pod:latest
+          ports:
+            - containerPort: 3002
+          env:
+            - name: NODE_ENV
+              value: staging
+            - name: PORT
+              value: "3002"
+            - name: DATABASE_URL
+              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+            - name: DB_HOST
+              value: dreamscape-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: dreamscape_user
+            - name: DB_PASSWORD
+              value: dreamscape_password
+            - name: DB_NAME
+              value: dreamscape
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: REDIS_PASSWORD
+              value: "redis_staging_password_123"
+            - name: JWT_SECRET
+              value: dev-jwt-secret
+            - name: JWT_REFRESH_SECRET
+              value: dev-jwt-secret
+            - name: CLIENT_URL
+              value: http://dreamscape-web-client-service:5173
+            - name: CORS_ORIGIN
+              value: http://dreamscape-web-client-service:5173
+            - name: AMADEUS_API_KEY
+              value: amadeus_test_key
+            - name: AMADEUS_API_SECRET
+              value: amadeus_test_secret
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-user-service
+  namespace: staging
+spec:
+  selector:
+    app: user-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+---
+# Business services (voyage + payment + ai)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voyage-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: voyage-service
+  template:
+    metadata:
+      labels:
+        app: voyage-service
+    spec:
+      containers:
+        - name: voyage-service
+          image: ghcr.io/dreamscape-ai/business-pod:latest
+          ports:
+            - containerPort: 3003
+          env:
+            - name: NODE_ENV
+              value: staging
+            - name: PORT
+              value: "3003"
+            - name: DATABASE_URL
+              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+            - name: DB_HOST
+              value: dreamscape-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: dreamscape_user
+            - name: DB_PASSWORD
+              value: dreamscape_password
+            - name: DB_NAME
+              value: dreamscape
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: S3_ENDPOINT
+              value: http://minio:9000
+            - name: S3_BUCKET
+              value: dreamscape-vr-assets
+            - name: S3_ACCESS_KEY
+              value: minioadmin
+            - name: S3_SECRET_KEY
+              value: minioadmin123
+            - name: CLIENT_URL
+              value: http://dreamscape-web-client-service:5173
+            - name: CORS_ORIGIN
+              value: http://dreamscape-web-client-service:5173
+            - name: AMADEUS_API_KEY
+              value: amadeus_test_key
+            - name: AMADEUS_API_SECRET
+              value: amadeus_test_secret
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-voyage-service
+  namespace: staging
+spec:
+  selector:
+    app: voyage-service
+  ports:
+    - port: 3003
+      targetPort: 3003
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: ghcr.io/dreamscape-ai/business-pod:latest
+          ports:
+            - containerPort: 3005
+          env:
+            - name: NODE_ENV
+              value: staging
+            - name: PORT
+              value: "3005"
+            - name: DATABASE_URL
+              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+            - name: DB_HOST
+              value: dreamscape-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: dreamscape_user
+            - name: DB_PASSWORD
+              value: dreamscape_password
+            - name: DB_NAME
+              value: dreamscape
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: FRONTEND_URL
+              value: http://dreamscape-gateway-service:3000
+            - name: STRIPE_SECRET_KEY
+              value: sk_test_dummy_secret_key
+            - name: STRIPE_PUBLISHABLE_KEY
+              value: pk_test_dummy_publishable_key
+            - name: STRIPE_WEBHOOK_SECRET
+              value: whsec_dummy_webhook_secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-payment-service
+  namespace: staging
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - port: 3005
+      targetPort: 3005
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      containers:
+        - name: ai-service
+          image: ghcr.io/dreamscape-ai/business-pod:latest
+          ports:
+            - containerPort: 3004
+          env:
+            - name: NODE_ENV
+              value: staging
+            - name: PORT
+              value: "3004"
+            - name: DATABASE_URL
+              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+            - name: DB_HOST
+              value: dreamscape-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: dreamscape_user
+            - name: DB_PASSWORD
+              value: dreamscape_password
+            - name: DB_NAME
+              value: dreamscape
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_URL
+              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+            - name: CLIENT_URL
+              value: http://dreamscape-web-client-service:5173
+            - name: CORS_ORIGIN
+              value: http://dreamscape-web-client-service:5173
+            - name: AMADEUS_API_KEY
+              value: amadeus_test_key
+            - name: AMADEUS_API_SECRET
+              value: amadeus_test_secret
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-ai-service
+  namespace: staging
+spec:
+  selector:
+    app: ai-service
+  ports:
+    - port: 3004
+      targetPort: 3004
+---
+# Experience services (gateway + panorama + web-client)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      containers:
+        - name: gateway-service
+          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: AUTH_SERVICE_URL
+              value: http://dreamscape-auth-service:3001
+            - name: USER_SERVICE_URL
+              value: http://dreamscape-user-service:3002
+            - name: VOYAGE_SERVICE_URL
+              value: http://dreamscape-voyage-service:3003
+            - name: AI_SERVICE_URL
+              value: http://dreamscape-ai-service:3004
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-gateway-service
+  namespace: staging
+spec:
+  selector:
+    app: gateway-service
+  ports:
+    - port: 3000
+      targetPort: 3007
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: panorama-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: panorama-service
+  template:
+    metadata:
+      labels:
+        app: panorama-service
+    spec:
+      containers:
+        - name: panorama-service
+          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          ports:
+            - containerPort: 3006
+          env:
+            - name: REDIS_HOST
+              value: dreamscape-redis
+            - name: REDIS_PORT
+              value: "6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-panorama-service
+  namespace: staging
+spec:
+  selector:
+    app: panorama-service
+  ports:
+    - port: 3006
+      targetPort: 3006
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-client-service
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-client-service
+  template:
+    metadata:
+      labels:
+        app: web-client-service
+    spec:
+      containers:
+        - name: web-client-service
+          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          ports:
+            - containerPort: 5173
+          env:
+            - name: VITE_API_URL
+              value: http://dreamscape-gateway-service:3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dreamscape-web-client-service
+  namespace: staging
+spec:
+  selector:
+    app: web-client-service
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-client-loadbalancer
+  namespace: staging
+spec:
+  type: LoadBalancer
+  selector:
+    app: web-client-service
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP

@@ -23,6 +23,24 @@ HEALTH_CHECK_RETRIES=20
 HEALTH_CHECK_INTERVAL=15
 PARALLEL_DEPLOYMENT=false
 
+# Resolved namespace for deployments (may differ from configured if resources exist elsewhere)
+RESOLVED_NAMESPACE=""
+
+# Build image name helper to stay aligned with build script env vars
+get_pod_image_name() {
+    local pod_name="$1"
+    local version_tag="${2:-${DEPLOYMENT_VERSION:-latest}}"
+
+    local registry_prefix=""
+    local namespace="${REGISTRY_NAMESPACE:-dreamscape}"
+
+    if [[ -n "${REGISTRY_URL:-}" ]]; then
+        registry_prefix="${REGISTRY_URL}/"
+    fi
+
+    echo "${registry_prefix}${namespace}/${pod_name}-pod:${version_tag}"
+}
+
 # Notification settings
 SLACK_WEBHOOK=""
 TEAMS_WEBHOOK=""
@@ -321,10 +339,11 @@ validate_deployment() {
     # Validate version tag if specified
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
         for pod_name in "${PODS_TO_DEPLOY[@]}"; do
-            local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+            local image_name
+            image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
 
             if ! docker manifest inspect "$image_name" >/dev/null 2>&1; then
-                log_warn "docker manifest inspect failed for $image_name. Attempting fallback validation with docker pull..."
+                log_warning "docker manifest inspect failed for $image_name. Attempting fallback validation with docker pull..."
                 if ! docker pull "$image_name" >/dev/null 2>&1; then
                     log_error "Image not found or inaccessible: $image_name. Both docker manifest inspect and docker pull failed. Please check registry type, authentication, and image existence."
                     return 1
@@ -427,7 +446,8 @@ deploy_local_rolling() {
 
     # Update images
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
-        local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+        local image_name
+        image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
         log_info "Pulling image: $image_name"
         docker pull "$image_name"
     fi
@@ -448,18 +468,18 @@ deploy_k8s_rolling() {
 
     log_info "Rolling update for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
-
-    local deployment_name="dreamscape-${pod_name}-pod"
+    local deployment_name
+    deployment_name=$(resolve_deployment_name "$pod_name") || return 1
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     # Update deployment image
     if [[ -n "$DEPLOYMENT_VERSION" ]]; then
-        local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION}"
+        local image_name
+        image_name="$(get_pod_image_name "$pod_name" "$DEPLOYMENT_VERSION")"
 
         log_info "Updating deployment image: $image_name"
         kubectl set image deployment/"$deployment_name" \
-                "${pod_name}-pod=$image_name" \
+                "*=$image_name" \
                 -n "$namespace"
     else
         # Restart deployment
@@ -504,8 +524,7 @@ deploy_k8s_blue_green() {
 
     log_info "Blue-green deployment for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     local blue_deployment="dreamscape-${pod_name}-pod-blue"
     local green_deployment="dreamscape-${pod_name}-pod-green"
@@ -527,11 +546,12 @@ deploy_k8s_blue_green() {
 
     # Deploy to inactive environment
     local target_deployment="dreamscape-${pod_name}-pod-${new_deployment}"
-    local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION:-latest}"
+    local image_name
+    image_name="$(get_pod_image_name "$pod_name")"
 
     # Update deployment
     kubectl set image deployment/"$target_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Wait for new deployment to be ready
@@ -589,17 +609,17 @@ deploy_k8s_canary() {
 
     log_info "Canary deployment for Kubernetes $pod_name pod..."
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     local stable_deployment="dreamscape-${pod_name}-pod-stable"
     local canary_deployment="dreamscape-${pod_name}-pod-canary"
 
     # Deploy canary version
-    local image_name="dreamscape/${pod_name}-pod:${DEPLOYMENT_VERSION:-latest}"
+    local image_name
+    image_name="$(get_pod_image_name "$pod_name")"
 
     kubectl set image deployment/"$canary_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Scale canary deployment
@@ -639,7 +659,7 @@ deploy_k8s_canary() {
     # Promote canary to stable
     log_info "Promoting canary to stable..."
     kubectl set image deployment/"$stable_deployment" \
-            "${pod_name}-pod=$image_name" \
+            "*=$image_name" \
             -n "$namespace"
 
     # Wait for stable deployment update
@@ -734,6 +754,78 @@ get_pod_services_detailed() {
     esac
 }
 
+# Resolve the actual deployment name in the target namespace for a given pod.
+# This tries a small set of known naming patterns to align with already-created resources.
+resolve_deployment_name() {
+    local pod_name="$1"
+    local namespace
+    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+
+    RESOLVED_NAMESPACE="$namespace"
+
+    # If the namespace does not exist, note it but continue to search globally.
+    if ! kubectl get namespace "$namespace" >/dev/null 2>&1; then
+        log_warning "Namespace '$namespace' not found. Searching deployments across namespaces."
+        RESOLVED_NAMESPACE="default"
+    fi
+
+    local candidates=()
+    case "$pod_name" in
+        "core")
+            candidates=(
+                "dreamscape-core-pod"
+                "core-pod"
+                "core"
+                "auth-service"
+                "user-service"
+                "auth-service"
+            )
+            ;;
+        "business")
+            candidates=(
+                "dreamscape-business-pod"
+                "business-pod"
+                "business"
+                "voyage-service"
+                "payment-service"
+                "ai-service"
+                "voyage-service"
+            )
+            ;;
+        "experience")
+            candidates=(
+                "dreamscape-experience-pod"
+                "experience-pod"
+                "experience"
+                "gateway-service"
+                "panorama-service"
+                "web-client-service"
+                "gateway-service"
+            )
+            ;;
+    esac
+
+    for candidate in "${candidates[@]}"; do
+        # First try configured (or fallback) namespace
+        if kubectl get deployment "$candidate" -n "$RESOLVED_NAMESPACE" >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+
+        # Then search all namespaces for this deployment name
+        local found_ns
+        found_ns=$(kubectl get deployment "$candidate" -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || echo "")
+        if [[ -n "$found_ns" ]]; then
+            RESOLVED_NAMESPACE="$found_ns"
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    log_error "Deployment not found for pod '$pod_name'. Tried: ${candidates[*]} in namespace '$namespace' and cluster-wide."
+    return 1
+}
+
 # Rollback deployment
 rollback_deployment() {
     local pod_name="$1"
@@ -758,7 +850,11 @@ rollback_local() {
 
     # Get previous image
     local previous_image
-    previous_image=$(docker images "dreamscape/${pod_name}-pod" --format "table {{.Tag}}" | sed -n 2p)
+    local image_repo
+    image_repo="$(get_pod_image_name "$pod_name" "latest")"
+    image_repo="${image_repo%:*}"
+
+    previous_image=$(docker images "$image_repo" --format "table {{.Tag}}" | sed -n 2p)
 
     if [[ -n "$previous_image" ]] && [[ "$previous_image" != "TAG" ]]; then
         log_info "Rolling back to previous image: $previous_image"
@@ -786,10 +882,9 @@ rollback_local() {
 rollback_k8s() {
     local pod_name="$1"
 
-    local namespace
-    namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
-
-    local deployment_name="dreamscape-${pod_name}-pod"
+    local deployment_name
+    deployment_name=$(resolve_deployment_name "$pod_name") || return 1
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
 
     log_info "Rolling back Kubernetes deployment..."
     kubectl rollout undo deployment/"$deployment_name" -n "$namespace"

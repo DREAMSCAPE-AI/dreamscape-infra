@@ -46,7 +46,7 @@ env:
 
   # Registry Configuration
   REGISTRY_URL: ghcr.io
-  REGISTRY_NAMESPACE: dreamscape
+  REGISTRY_NAMESPACE: dreamscape-ai
 
   # Monitoring Configuration
   MONITORING_ENABLED: true
@@ -186,6 +186,8 @@ jobs:
 
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64
 
       - name: 🔐 Login to Container Registry
         uses: docker/login-action@v3
@@ -241,6 +243,13 @@ jobs:
         run: |
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔧 Setup Deployment Environment
         run: |
           echo "🔧 Setting up staging deployment environment..."
@@ -249,6 +258,66 @@ jobs:
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+
+      - name: 🔑 Configure Kubernetes Access
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
+        run: |
+          echo "🔑 Configuring kubeconfig for K3s via SSH tunnel..."
+
+          if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
+            echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh ~/.kube
+          echo "$K3S_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
+
+          LOCAL_API_PORT=7443
+
+          # Fetch kubeconfig from the remote K3s server
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
+            "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
+
+          # Point kubeconfig to the local forwarded port
+          sed -i "s|127.0.0.1:6443|127.0.0.1:${LOCAL_API_PORT}|g" ~/.kube/config
+
+          # Start SSH tunnel to the K3s API server
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=no \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
+            -f -N -L ${LOCAL_API_PORT}:127.0.0.1:6443 \
+            ubuntu@"$K3S_HOST"
+
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          echo "K3S_TUNNEL_PORT=${LOCAL_API_PORT}" >> $GITHUB_ENV
+
+          # Verify connectivity with retries to avoid transient tunnel failures
+          success=false
+          for attempt in {1..5}; do
+            if kubectl cluster-info >/dev/null 2>&1; then
+              kubectl cluster-info
+              success=true
+              break
+            fi
+
+            echo "Waiting for Kubernetes API via SSH tunnel (attempt $attempt/5)..."
+            sleep 5
+          done
+
+          if [[ "$success" != "true" ]]; then
+            echo "::error::Unable to reach Kubernetes API via SSH tunnel"
+            exit 1
+          fi
+
+      - name: 📦 Bootstrap staging k8s resources
+        run: |
+          kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
 
       - name: 🚀 Deploy to Staging
         working-directory: scripts/bigpods
@@ -332,6 +401,13 @@ jobs:
         run: |
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
 
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔧 Setup Production Environment
         run: |
           echo "🔧 Setting up production deployment environment..."
@@ -340,6 +416,60 @@ jobs:
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+
+      - name: 🔑 Configure Kubernetes Access
+        env:
+          K3S_HOST: ${{ secrets.K3S_HOST }}
+          K3S_SSH_KEY: ${{ secrets.K3S_SSH_KEY }}
+        run: |
+          echo "🔑 Configuring kubeconfig for K3s via SSH tunnel..."
+
+          if [[ -z "$K3S_HOST" || -z "$K3S_SSH_KEY" ]]; then
+            echo "::error::K3S_HOST/K3S_SSH_KEY secrets are required for Kubernetes access"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh ~/.kube
+          echo "$K3S_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$K3S_HOST" >> ~/.ssh/known_hosts
+
+          LOCAL_API_PORT=7443
+
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$K3S_HOST" \
+            "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
+
+          # Point kubeconfig to the local forwarded port
+          sed -i "s|127.0.0.1:6443|127.0.0.1:${LOCAL_API_PORT}|g" ~/.kube/config
+
+          # Start SSH tunnel to the K3s API server
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=no \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
+            -f -N -L ${LOCAL_API_PORT}:127.0.0.1:6443 \
+            ubuntu@"$K3S_HOST"
+
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          echo "K3S_TUNNEL_PORT=${LOCAL_API_PORT}" >> $GITHUB_ENV
+
+          success=false
+          for attempt in {1..5}; do
+            if kubectl cluster-info >/dev/null 2>&1; then
+              kubectl cluster-info
+              success=true
+              break
+            fi
+
+            echo "Waiting for Kubernetes API via SSH tunnel (attempt $attempt/5)..."
+            sleep 5
+          done
+
+          if [[ "$success" != "true" ]]; then
+            echo "::error::Unable to reach Kubernetes API via SSH tunnel"
+            exit 1
+          fi
 
       - name: 🛡️ Pre-production Validation
         working-directory: scripts/bigpods
