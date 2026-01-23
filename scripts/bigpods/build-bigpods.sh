@@ -21,6 +21,19 @@ TOTAL_BUILD_TIME=0
 BUILDS_COMPLETED=0
 BUILDS_FAILED=0
 
+# Get the full image name for a pod, honoring registry env vars when set.
+get_pod_image_name() {
+    local pod_name="$1"
+    local registry_prefix=""
+    local namespace="${REGISTRY_NAMESPACE:-dreamscape}"
+
+    if [[ -n "${REGISTRY_URL:-}" ]]; then
+        registry_prefix="${REGISTRY_URL}/"
+    fi
+
+    echo "${registry_prefix}${namespace}/${pod_name}-pod"
+}
+
 # Usage function
 show_usage() {
     echo -e "${BLUE}${ROCKET_ICON} DreamScape Big Pods - Build Script${NC}"
@@ -171,6 +184,33 @@ check_prerequisites() {
     fi
 }
 
+# Ensure required repositories are present (clones dreamscape-services if missing)
+ensure_build_dependencies() {
+    local repo_path
+    repo_path=$(get_repository_path "dreamscape-services")
+
+    if [[ -d "$repo_path" ]]; then
+        log_debug "Dependency repository present: $repo_path"
+        return 0
+    fi
+
+    log_warning "Missing repository: $repo_path"
+
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        log_error "GITHUB_TOKEN not set. Cannot clone dreamscape-services automatically."
+        return 1
+    fi
+
+    log_info "Cloning dreamscape-services..."
+    if git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/DREAMSCAPE-AI/dreamscape-services.git" "$repo_path"; then
+        log_success "Cloned dreamscape-services into $repo_path"
+        return 0
+    else
+        log_error "Failed to clone dreamscape-services into $repo_path"
+        return 1
+    fi
+}
+
 # Detect changes in repositories
 detect_changes() {
     local pod_name="$1"
@@ -232,10 +272,22 @@ build_pod() {
 
     log_info "Building $pod_name pod..."
 
+    # Ensure dependent repos exist (e.g., dreamscape-services for shared/kafka and Prisma schema)
+    if [[ "$pod_name" == "business" ]]; then
+        if ! ensure_build_dependencies; then
+            log_error "Dependency preparation failed for $pod_name pod"
+            return 1
+        fi
+    fi
+
     # Check if build is needed with smart build
     if [[ "$SMART_BUILD" == "true" ]] && ! detect_changes "$pod_name"; then
-        log_success "$pod_name pod is up to date"
-        return 0
+        if [[ "$PUSH_IMAGES" == "true" ]]; then
+            log_info "Push requested - building $pod_name pod despite no changes"
+        else
+            log_success "$pod_name pod is up to date"
+            return 0
+        fi
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -247,42 +299,43 @@ build_pod() {
     local compose_file
     compose_file=$(get_pod_docker_compose "$pod_name")
 
-    if [[ ! -f "docker/$compose_file" ]]; then
-        log_error "Docker Compose file not found: docker/$compose_file"
+    local full_compose_path="../../docker/$compose_file"
+
+    if [[ ! -f "$full_compose_path" ]]; then
+        log_error "Docker Compose file not found: $full_compose_path"
+        BUILDS_FAILED=$((BUILDS_FAILED + 1))
+        BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: missing compose file\n"
         return 1
     fi
-
-    # Change to docker directory
-    cd docker
 
     # Prepare build command
     local compose_cmd
     compose_cmd=$(check_docker_compose)
-    local build_cmd="$compose_cmd -f $compose_file build"
+    local DOCKER_DIR="../../docker"
 
-    # Add build options
+    local build_options=""
     if [[ "$NO_CACHE" == "true" ]]; then
-        build_cmd="$build_cmd --no-cache"
+        build_options="$build_options --no-cache"
     fi
 
     if [[ "$PARALLEL_BUILD" == "true" ]]; then
-        build_cmd="$build_cmd --parallel"
+        build_options="$build_options --parallel"
     fi
 
-    # Add service name
-    build_cmd="$build_cmd ${pod_name}-pod"
+    local full_build_cmd="cd '$DOCKER_DIR' && $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
 
-    log_verbose "Build command: $build_cmd"
+    log_verbose "Build command: $full_build_cmd"
 
     # Execute build with timeout
-    if timeout "$BUILD_TIMEOUT" bash -c "$build_cmd"; then
+    if timeout "$BUILD_TIMEOUT" bash -c "$full_build_cmd"; then
         local end_time
         end_time=$(date +%s)
         local build_time=$((end_time - start_time))
 
         # Tag with version if specified
         if [[ -n "$VERSION_TAG" ]]; then
-            local image_name="dreamscape/${pod_name}-pod"
+            local image_name
+            image_name=$(get_pod_image_name "$pod_name")
             docker tag "${image_name}:latest" "${image_name}:${VERSION_TAG}"
             log_success "Tagged $pod_name pod with version $VERSION_TAG"
         fi
@@ -299,13 +352,11 @@ build_pod() {
         # Add to build stats
         BUILD_STATS="${BUILD_STATS}${SUCCESS_ICON} $pod_name: ${build_time}s\n"
 
-        cd ..
         return 0
     else
         log_error "$pod_name pod build failed or timed out"
         BUILDS_FAILED=$((BUILDS_FAILED + 1))
         BUILD_STATS="${BUILD_STATS}${ERROR_ICON} $pod_name: FAILED\n"
-        cd ..
         return 1
     fi
 }
@@ -316,7 +367,8 @@ push_pod_images() {
 
     log_info "Pushing $pod_name pod images..."
 
-    local image_name="dreamscape/${pod_name}-pod"
+    local image_name
+    image_name=$(get_pod_image_name "$pod_name")
 
     # Push latest tag
     if docker push "${image_name}:latest"; then

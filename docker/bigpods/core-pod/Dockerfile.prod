@@ -7,7 +7,21 @@
 FROM node:20-alpine AS auth-builder
 WORKDIR /app
 
-# Copier et installer le workspace db d'abord
+# Copier et compiler les shared modules d'abord
+COPY dreamscape-services/shared ./shared
+
+# Installer les dépendances du module kafka
+WORKDIR /app/shared/kafka
+RUN npm install --production=false
+RUN npm run build
+
+# Installer pg et redis pour le module health
+WORKDIR /app/shared
+RUN npm init -y && \
+    npm install pg redis @types/pg @types/redis --save
+
+# Copier et installer le workspace db
+WORKDIR /app
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
 WORKDIR /app/db
 RUN npm install --production=false
@@ -21,27 +35,48 @@ RUN npm run build
 
 # Retourner à /app pour le service auth
 WORKDIR /app
-COPY dreamscape-services/auth/package*.json dreamscape-services/auth/tsconfig.json dreamscape-services/auth/tsconfig.build.json ./auth/
+COPY dreamscape-services/auth/package*.json dreamscape-services/auth/tsconfig*.json ./auth/
 
 # Installer les dépendances auth
 WORKDIR /app/auth
 RUN npm install --production=false
 
-# Installer tsconfig-paths pour le runtime
-RUN npm install --save tsconfig-paths
+# Installer tsconfig-paths et dépendances pour shared/health
+RUN npm install --save tsconfig-paths && \
+    npm install --save-dev @types/pg && \
+    npm install --save pg redis
 
 # Copier le code source
 COPY dreamscape-services/auth/src/ ./src/
 COPY dreamscape-services/auth/prisma ./prisma
 
-# Builder le TypeScript avec tsconfig.build.json
-RUN npx tsc -p tsconfig.build.json
+# Créer symlink pour pg et redis depuis shared
+RUN ln -sf ../../shared/node_modules/pg ./node_modules/pg && \
+    ln -sf ../../shared/node_modules/redis ./node_modules/redis && \
+    ln -sf ../../shared/node_modules/@types ./node_modules/@types-shared
+
+# Builder le TypeScript
+RUN npx tsc
 
 # Stage 2: Build User Service
 FROM node:20-alpine AS user-builder
 WORKDIR /app
 
-# Copier et installer le workspace db d'abord
+# Copier et compiler les shared modules d'abord
+COPY dreamscape-services/shared ./shared
+
+# Installer les dépendances du module kafka
+WORKDIR /app/shared/kafka
+RUN npm install --production=false
+RUN npm run build
+
+# Installer pg et redis pour le module health
+WORKDIR /app/shared
+RUN npm init -y && \
+    npm install pg redis @types/pg @types/redis --save
+
+# Copier et installer le workspace db
+WORKDIR /app
 COPY dreamscape-services/db/package.json dreamscape-services/db/tsconfig.json ./db/
 WORKDIR /app/db
 RUN npm install --production=false
@@ -55,21 +90,28 @@ RUN npm run build
 
 # Retourner à /app pour le service user
 WORKDIR /app
-COPY dreamscape-services/user/package*.json dreamscape-services/user/tsconfig.json dreamscape-services/user/tsconfig.build.json ./user/
+COPY dreamscape-services/user/package*.json dreamscape-services/user/tsconfig*.json ./user/
 
 # Installer les dépendances user
 WORKDIR /app/user
 RUN npm install --production=false
 
-# Installer tsconfig-paths pour le runtime
-RUN npm install --save tsconfig-paths
+# Installer tsconfig-paths et dépendances pour shared/health
+RUN npm install --save tsconfig-paths && \
+    npm install --save-dev @types/pg && \
+    npm install --save pg redis
 
 # Copier le code source (exclure activities.ts)
 COPY dreamscape-services/user/src/ ./src/
 RUN rm -f ./src/routes/activities.ts 2>/dev/null || true
 
-# Builder le TypeScript avec tsconfig.build.json
-RUN npx tsc -p tsconfig.build.json
+# Créer symlink pour pg et redis depuis shared
+RUN ln -sf ../../shared/node_modules/pg ./node_modules/pg && \
+    ln -sf ../../shared/node_modules/redis ./node_modules/redis && \
+    ln -sf ../../shared/node_modules/@types ./node_modules/@types-shared
+
+# Builder le TypeScript
+RUN npx tsc
 
 # Stage 3: Final Multi-Service Runtime
 FROM node:20-alpine AS runtime
@@ -104,6 +146,9 @@ RUN mkdir -p \
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G nodejs -g nodejs nodejs
 
+# Copy shared modules
+COPY --from=auth-builder --chown=nodejs:nodejs /app/shared /app/shared
+
 # Copy shared DB workspace
 COPY --from=auth-builder --chown=nodejs:nodejs /app/db /app/db
 
@@ -115,9 +160,12 @@ COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/package.json /app/auth/
 # Créer tsconfig.json runtime pour auth
 RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/types/index.js"],"@services/*":["dist/services/*"],"@middleware/*":["dist/middleware/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/auth/tsconfig.json
 
-# Créer symlink @dreamscape/db pour auth
-RUN rm -f /app/auth/node_modules/@dreamscape/db && \
-    ln -sf ../../db /app/auth/node_modules/@dreamscape/db
+# Créer symlinks @dreamscape/* pour auth
+RUN mkdir -p /app/auth/node_modules/@dreamscape && \
+    rm -f /app/auth/node_modules/@dreamscape/db && \
+    ln -sf ../../db /app/auth/node_modules/@dreamscape/db && \
+    rm -f /app/auth/node_modules/@dreamscape/kafka && \
+    ln -sf ../../shared/kafka /app/auth/node_modules/@dreamscape/kafka
 
 # Copy User Service built artifacts
 COPY --from=user-builder --chown=nodejs:nodejs /app/user/dist /app/user/dist
@@ -127,9 +175,12 @@ COPY --from=user-builder --chown=nodejs:nodejs /app/user/package.json /app/user/
 # Créer tsconfig.json runtime pour user
 RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/types/index.js"],"@services/*":["dist/services/*"],"@middleware/*":["dist/middleware/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/user/tsconfig.json
 
-# Créer symlink @dreamscape/db pour user
-RUN rm -f /app/user/node_modules/@dreamscape/db && \
-    ln -sf ../../db /app/user/node_modules/@dreamscape/db
+# Créer symlinks @dreamscape/* pour user
+RUN mkdir -p /app/user/node_modules/@dreamscape && \
+    rm -f /app/user/node_modules/@dreamscape/db && \
+    ln -sf ../../db /app/user/node_modules/@dreamscape/db && \
+    rm -f /app/user/node_modules/@dreamscape/kafka && \
+    ln -sf ../../shared/kafka /app/user/node_modules/@dreamscape/kafka
 
 # Copy NGINX configuration
 COPY --chown=nginx:nginx dreamscape-infra/docker/core-pod/nginx/nginx.conf /etc/nginx/nginx.conf

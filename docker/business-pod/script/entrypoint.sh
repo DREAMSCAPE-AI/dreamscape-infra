@@ -66,9 +66,45 @@ else
     exit 1
 fi
 
-# Initialize databases (Prisma) for Voyage service
+# Initialize databases (Prisma) - Run migrations and generate client
 echo -e "${YELLOW}🗄️ Initializing databases...${NC}"
 
+# Run Prisma migrations from shared db folder
+if [ -d "/app/db" ]; then
+    cd /app/db
+    echo -e "${BLUE}🚀 Running database migrations...${NC}"
+
+    # Wait for database to be ready (with timeout)
+    echo -e "${BLUE}⏳ Waiting for database to be ready...${NC}"
+    MAX_RETRIES=30
+    RETRY_COUNT=0
+
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if npx prisma db execute --stdin <<< "SELECT 1;" 2>/dev/null; then
+            echo -e "${GREEN}✅ Database is ready${NC}"
+            break
+        fi
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo -e "${YELLOW}⏳ Waiting for database... (attempt $RETRY_COUNT/$MAX_RETRIES)${NC}"
+        sleep 2
+    done
+
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        echo -e "${RED}❌ Database not ready after $MAX_RETRIES attempts${NC}"
+        echo -e "${YELLOW}⚠️ Continuing without migrations - service may fail if DB schema is not initialized${NC}"
+    else
+        # Run migrations
+        echo -e "${BLUE}📦 Deploying Prisma migrations...${NC}"
+        if npx prisma migrate deploy; then
+            echo -e "${GREEN}✅ Database migrations completed successfully${NC}"
+        else
+            echo -e "${RED}❌ Database migrations failed${NC}"
+            echo -e "${YELLOW}⚠️ Continuing anyway - service may fail if DB schema is not initialized${NC}"
+        fi
+    fi
+fi
+
+# Generate Prisma client for voyage service if needed
 if [ -d "/app/voyage/prisma" ]; then
     cd /app/voyage
     echo -e "${BLUE}📦 Generating Prisma client for voyage service...${NC}"
