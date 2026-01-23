@@ -48,6 +48,9 @@ env:
   REGISTRY_URL: ghcr.io
   REGISTRY_NAMESPACE: dreamscape-ai
 
+  # Tooling
+  KUBECTL_FALLBACK_VERSION: v1.30.4
+
   # Monitoring Configuration
   MONITORING_ENABLED: true
   HEALTH_CHECK_TIMEOUT: 300
@@ -252,12 +255,30 @@ jobs:
 
       - name: 🔧 Setup Deployment Environment
         run: |
+          set -euo pipefail
           echo "🔧 Setting up staging deployment environment..."
 
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+          kubectl_version="${KUBECTL_VERSION:-}"
+          if [[ -z "$kubectl_version" ]]; then
+            kubectl_version="$(curl -fsSL https://dl.k8s.io/release/stable.txt || true)"
+          fi
+
+          if [[ -z "$kubectl_version" ]]; then
+            echo "::warning::Unable to resolve kubectl version from stable.txt, falling back to ${KUBECTL_FALLBACK_VERSION}"
+            kubectl_version="${KUBECTL_FALLBACK_VERSION}"
+          fi
+
+          echo "📦 Installing kubectl ${kubectl_version}..."
+          curl -fsSLo kubectl "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
+          curl -fsSLo kubectl.sha256 "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl.sha256"
+
+          if ! echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status; then
+            echo "::error::kubectl checksum verification failed"
+            exit 1
+          fi
+
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client --output=yaml
 
       - name: 🔑 Configure Kubernetes Access
         env:
@@ -384,12 +405,30 @@ jobs:
 
       - name: 🔧 Setup Production Environment
         run: |
+          set -euo pipefail
           echo "🔧 Setting up production deployment environment..."
 
-          # Install kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+          kubectl_version="${KUBECTL_VERSION:-}"
+          if [[ -z "$kubectl_version" ]]; then
+            kubectl_version="$(curl -fsSL https://dl.k8s.io/release/stable.txt || true)"
+          fi
+
+          if [[ -z "$kubectl_version" ]]; then
+            echo "::warning::Unable to resolve kubectl version from stable.txt, falling back to ${KUBECTL_FALLBACK_VERSION}"
+            kubectl_version="${KUBECTL_FALLBACK_VERSION}"
+          fi
+
+          echo "📦 Installing kubectl ${kubectl_version}..."
+          curl -fsSLo kubectl "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
+          curl -fsSLo kubectl.sha256 "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl.sha256"
+
+          if ! echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status; then
+            echo "::error::kubectl checksum verification failed"
+            exit 1
+          fi
+
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client --output=yaml
 
       - name: 🔑 Configure Kubernetes Access
         env:
