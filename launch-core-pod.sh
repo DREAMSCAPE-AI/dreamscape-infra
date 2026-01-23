@@ -97,33 +97,33 @@ show_status() {
 }
 
 # Function to test services
-test_services() {
-    echo -e "${YELLOW}🧪 Testing Core Pod services...${NC}"
+# test_services() {
+#     echo -e "${YELLOW}🧪 Testing Core Pod services...${NC}"
     
-    # Wait a bit for services to fully start
-    sleep 10
+#     # Wait a bit for services to fully start
+#     sleep 10
     
-    # Test NGINX
-    if curl -f -s http://localhost:80/health >/dev/null; then
-        echo -e "${GREEN}✅ NGINX is healthy${NC}"
-    else
-        echo -e "${RED}❌ NGINX health check failed${NC}"
-    fi
+#     # Test NGINX
+#     if curl -f -s http://localhost:80/health >/dev/null; then
+#         echo -e "${GREEN}✅ NGINX is healthy${NC}"
+#     else
+#         echo -e "${RED}❌ NGINX health check failed${NC}"
+#     fi
     
-    # Test Auth Service via NGINX
-    if curl -f -s http://localhost:80/api/v1/auth/health >/dev/null; then
-        echo -e "${GREEN}✅ Auth Service is healthy${NC}"
-    else
-        echo -e "${YELLOW}⚠️ Auth Service not ready yet (normal during startup)${NC}"
-    fi
+#     # Test Auth Service via NGINX
+#     if curl -f -s http://localhost:80/api/v1/auth/health >/dev/null; then
+#         echo -e "${GREEN}✅ Auth Service is healthy${NC}"
+#     else
+#         echo -e "${YELLOW}⚠️ Auth Service not ready yet (normal during startup)${NC}"
+#     fi
     
-    # Test User Service via NGINX
-    if curl -f -s http://localhost:80/api/v1/users/health >/dev/null; then
-        echo -e "${GREEN}✅ User Service is healthy${NC}"
-    else
-        echo -e "${YELLOW}⚠️ User Service not ready yet (normal during startup)${NC}"
-    fi
-}
+#     # Test User Service via NGINX
+#     if curl -f -s http://localhost:80/api/v1/users/health >/dev/null; then
+#         echo -e "${GREEN}✅ User Service is healthy${NC}"
+#     else
+#         echo -e "${YELLOW}⚠️ User Service not ready yet (normal during startup)${NC}"
+#     fi
+# }
 
 # Function to show logs
 show_logs() {

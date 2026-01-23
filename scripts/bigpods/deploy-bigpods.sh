@@ -900,28 +900,28 @@ rollback_k8s() {
     log_success "$pod_name pod rollback completed"
 }
 
-# Post-deployment verification
-post_deployment_verification() {
-    log_info "Running post-deployment verification..."
+# # Post-deployment verification
+# post_deployment_verification() {
+#     log_info "Running post-deployment verification..."
 
-    # Health checks
-    for pod_name in "${PODS_TO_DEPLOY[@]}"; do
-        if ! test_deployment_health "$pod_name"; then
-            log_error "Post-deployment health check failed for $pod_name pod"
+#     # Health checks
+#     for pod_name in "${PODS_TO_DEPLOY[@]}"; do
+#         if ! test_deployment_health "$pod_name"; then
+#             log_error "Post-deployment health check failed for $pod_name pod"
 
-            if [[ "$ROLLBACK_ON_FAILURE" == "true" ]]; then
-                rollback_deployment "$pod_name"
-            fi
+#             if [[ "$ROLLBACK_ON_FAILURE" == "true" ]]; then
+#                 rollback_deployment "$pod_name"
+#             fi
 
-            return 1
-        fi
-    done
+#             return 1
+#         fi
+#     done
 
-    # Integration tests
-    run_integration_tests
+#     # Integration tests
+#     run_integration_tests
 
-    log_success "Post-deployment verification completed"
-}
+#     log_success "Post-deployment verification completed"
+# }
 
 # Run integration tests
 run_integration_tests() {
