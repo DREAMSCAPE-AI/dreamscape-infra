@@ -490,15 +490,21 @@ jobs:
 
       - name: 💾 Backup Production
         working-directory: scripts/bigpods
+        env:
+          BACKUP_DESTINATION: /tmp/production-backups
         timeout-minutes: 10
         run: |
           echo "💾 Creating production backup before deployment..."
 
-          ./backup-bigpods.sh \
+          FORCE=true ./backup-bigpods.sh \
             --type configs \
-            --s3-bucket dreamscape-production-backups \
-            --env production \
-            --force
+            --destination "${BACKUP_DESTINATION}" \
+            --remote-backup dreamscape-production-backups \
+            --retention 30 \
+            --no-encryption \
+            --no-parallel \
+            --no-verification \
+            --verbose
 
       - name: 🚀 Deploy to Production
         working-directory: scripts/bigpods
