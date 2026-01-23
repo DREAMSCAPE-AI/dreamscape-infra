@@ -229,27 +229,31 @@ detect_repository_changes() {
     return 1
 }
 
-# # Service health functions
-# check_service_health() {
-#     local service_url="$1"
-#     local timeout="${2:-30}"
-#     local max_attempts="${3:-10}"
+check_service_health() {
+    local service_url="$1"
+    local timeout="${2:-30}"
+    local max_attempts="${3:-10}"
 
-#     log_verbose "Checking health of $service_url"
+    if ! command -v curl >/dev/null 2>&1; then
+        log_warning "curl not available, skipping health check for $service_url"
+        return 0
+    fi
 
-#     for ((i=1; i<=max_attempts; i++)); do
-#         if curl -f -s --max-time "$timeout" "$service_url" >/dev/null 2>&1; then
-#             log_success "Service healthy: $service_url"
-#             return 0
-#         fi
+    log_verbose "Checking health of $service_url"
 
-#         log_debug "Health check attempt $i/$max_attempts failed for $service_url"
-#         sleep 2
-#     done
+    for ((i=1; i<=max_attempts; i++)); do
+        if curl -f -s --max-time "$timeout" "$service_url" >/dev/null 2>&1; then
+            log_success "Service healthy: $service_url"
+            return 0
+        fi
 
-#     log_error "Service health check failed: $service_url"
-#     return 1
-# }
+        log_debug "Health check attempt $i/$max_attempts failed for $service_url"
+        sleep 2
+    done
+
+    log_error "Service health check failed: $service_url"
+    return 1
+}
 
 wait_for_service() {
     local service_name="$1"

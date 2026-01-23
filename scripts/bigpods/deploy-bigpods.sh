@@ -702,40 +702,99 @@ wait_for_pod_health() {
     done
 }
 
-# # Test deployment health
-# test_deployment_health() {
-#     local pod_name="$1"
-#     local deployment_variant="${2:-}"
+get_pod_deployment_candidates() {
+    local pod_name="$1"
 
-#     log_verbose "Testing deployment health for $pod_name pod..."
+    case "$pod_name" in
+        "core")
+            echo "dreamscape-core-pod core-pod core auth-service user-service"
+            ;;
+        "business")
+            echo "dreamscape-business-pod business-pod business voyage-service payment-service ai-service"
+            ;;
+        "experience")
+            echo "dreamscape-experience-pod experience-pod experience gateway-service panorama-service web-client-service"
+            ;;
+    esac
+}
 
-#     local services
-#     services=$(get_pod_services_detailed "$pod_name")
+test_deployment_health() {
+    local pod_name="$1"
+    local deployment_variant="${2:-}"
 
-#     for service_info in $services; do
-#         local service_name="${service_info%:*}"
-#         local service_port="${service_info#*:}"
+    log_verbose "Testing deployment health for $pod_name pod..."
 
-#         local health_url="http://localhost:$service_port/health"
+    # For local deployments, rely on direct HTTP health checks.
+    if [[ "$TARGET_ENVIRONMENT" == "local" ]]; then
+        local services
+        services=$(get_pod_services_detailed "$pod_name")
+        local failures=0
 
-#         if [[ "$TARGET_ENVIRONMENT" != "local" ]]; then
-#             local namespace
-#             namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+        for service_info in $services; do
+            local service_port="${service_info#*:}"
+            local health_url="http://localhost:$service_port/health"
 
-#             if [[ -n "$deployment_variant" ]]; then
-#                 health_url="http://dreamscape-${service_name}-service-${deployment_variant}.${namespace}.svc.cluster.local/health"
-#             else
-#                 health_url="http://dreamscape-${service_name}-service.${namespace}.svc.cluster.local/health"
-#             fi
-#         fi
+            if ! check_service_health "$health_url" 5 "$HEALTH_CHECK_RETRIES"; then
+                failures=$((failures + 1))
+            fi
+        done
 
-#         if ! check_service_health "$health_url" 10 3; then
-#             return 1
-#         fi
-#     done
+        return $failures
+    fi
 
-#     return 0
-# }
+    local namespace="${RESOLVED_NAMESPACE:-$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")}"
+    local -a candidates=()
+
+    if [[ -n "$deployment_variant" ]]; then
+        candidates=(
+            "dreamscape-${pod_name}-pod-${deployment_variant}"
+            "${pod_name}-pod-${deployment_variant}"
+            "${pod_name}-${deployment_variant}"
+        )
+    else
+        IFS=' ' read -r -a candidates <<< "$(get_pod_deployment_candidates "$pod_name")"
+    fi
+
+    local found=0
+    local failures=0
+
+    for deployment_name in "${candidates[@]}"; do
+        if [[ -z "$deployment_name" ]]; then
+            continue
+        fi
+
+        if kubectl get deployment "$deployment_name" -n "$namespace" >/dev/null 2>&1; then
+            found=1
+
+            if ! kubectl rollout status deployment/"$deployment_name" -n "$namespace" --timeout="180s"; then
+                log_error "Deployment $deployment_name rollout not healthy in namespace $namespace"
+                failures=$((failures + 1))
+                continue
+            fi
+
+            local ready desired
+            ready=$(kubectl get deployment/"$deployment_name" -n "$namespace" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            desired=$(kubectl get deployment/"$deployment_name" -n "$namespace" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+
+            ready=${ready:-0}
+            desired=${desired:-0}
+
+            if [[ "$desired" -gt 0 && "$ready" -lt "$desired" ]]; then
+                log_error "Deployment $deployment_name not fully ready ($ready/$desired) in namespace $namespace"
+                failures=$((failures + 1))
+            else
+                log_success "Deployment $deployment_name healthy ($ready/$desired) in namespace $namespace"
+            fi
+        fi
+    done
+
+    if [[ $found -eq 0 ]]; then
+        log_error "No deployments found for pod $pod_name in namespace $namespace"
+        return 1
+    fi
+
+    return $failures
+}
 
 # Get pod services detailed
 get_pod_services_detailed() {
@@ -900,28 +959,45 @@ rollback_k8s() {
     log_success "$pod_name pod rollback completed"
 }
 
-# # Post-deployment verification
-# post_deployment_verification() {
-#     log_info "Running post-deployment verification..."
+post_deployment_verification() {
+    if [[ "$SKIP_VALIDATION" == "true" ]]; then
+        log_warning "Skipping post-deployment verification (--skip-validation)"
+        return 0
+    fi
 
-#     # Health checks
-#     for pod_name in "${PODS_TO_DEPLOY[@]}"; do
-#         if ! test_deployment_health "$pod_name"; then
-#             log_error "Post-deployment health check failed for $pod_name pod"
+    log_info "Running post-deployment verification..."
 
-#             if [[ "$ROLLBACK_ON_FAILURE" == "true" ]]; then
-#                 rollback_deployment "$pod_name"
-#             fi
+    for pod_name in "${PODS_TO_DEPLOY[@]}"; do
+        if ! test_deployment_health "$pod_name"; then
+            log_error "Post-deployment health check failed for $pod_name pod"
 
-#             return 1
-#         fi
-#     done
+            if [[ "$ROLLBACK_ON_FAILURE" == "true" ]]; then
+                rollback_deployment "$pod_name"
+            fi
 
-#     # Integration tests
-#     run_integration_tests
+            return 1
+        fi
+    done
 
-#     log_success "Post-deployment verification completed"
-# }
+    if [[ "$TARGET_ENVIRONMENT" == "local" ]]; then
+        if ! run_integration_tests; then
+            log_error "Integration tests failed after deployment"
+
+            if [[ "$ROLLBACK_ON_FAILURE" == "true" ]]; then
+                for pod_name in "${PODS_TO_DEPLOY[@]}"; do
+                    rollback_deployment "$pod_name"
+                done
+            fi
+
+            return 1
+        fi
+    else
+        log_debug "Skipping API smoke tests for $TARGET_ENVIRONMENT; not reachable outside the cluster"
+    fi
+
+    log_success "Post-deployment verification completed"
+    return 0
+}
 
 # Run integration tests
 run_integration_tests() {
