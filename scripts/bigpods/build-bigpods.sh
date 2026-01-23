@@ -299,7 +299,8 @@ build_pod() {
     local compose_file
     compose_file=$(get_pod_docker_compose "$pod_name")
 
-    local full_compose_path="../../docker/$compose_file"
+    local DOCKER_DIR="$SCRIPT_DIR/../../docker"
+    local full_compose_path="$DOCKER_DIR/$compose_file"
 
     if [[ ! -f "$full_compose_path" ]]; then
         log_error "Docker Compose file not found: $full_compose_path"
@@ -311,7 +312,6 @@ build_pod() {
     # Prepare build command
     local compose_cmd
     compose_cmd=$(check_docker_compose)
-    local DOCKER_DIR="../../docker"
 
     local build_options=""
     if [[ "$NO_CACHE" == "true" ]]; then
