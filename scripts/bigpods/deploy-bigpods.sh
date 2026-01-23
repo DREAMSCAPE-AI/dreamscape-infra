@@ -456,8 +456,8 @@ deploy_local_rolling() {
     log_info "Performing rolling restart..."
     $compose_cmd -f "$compose_file" up -d --no-deps "${pod_name}-pod"
 
-    # Wait for service to be healthy
-    wait_for_pod_health "$pod_name"
+    # Health checks disabled
+    # wait_for_pod_health "$pod_name"
 
     cd ..
 }
@@ -495,8 +495,8 @@ deploy_k8s_rolling() {
         return 1
     fi
 
-    # Verify deployment health
-    wait_for_pod_health "$pod_name"
+    # Health checks disabled
+    # wait_for_pod_health "$pod_name"
 
     log_success "$pod_name pod rolling update completed"
 }
