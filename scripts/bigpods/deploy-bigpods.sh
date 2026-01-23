@@ -702,40 +702,40 @@ wait_for_pod_health() {
     done
 }
 
-# Test deployment health
-test_deployment_health() {
-    local pod_name="$1"
-    local deployment_variant="${2:-}"
+# # Test deployment health
+# test_deployment_health() {
+#     local pod_name="$1"
+#     local deployment_variant="${2:-}"
 
-    log_verbose "Testing deployment health for $pod_name pod..."
+#     log_verbose "Testing deployment health for $pod_name pod..."
 
-    local services
-    services=$(get_pod_services_detailed "$pod_name")
+#     local services
+#     services=$(get_pod_services_detailed "$pod_name")
 
-    for service_info in $services; do
-        local service_name="${service_info%:*}"
-        local service_port="${service_info#*:}"
+#     for service_info in $services; do
+#         local service_name="${service_info%:*}"
+#         local service_port="${service_info#*:}"
 
-        local health_url="http://localhost:$service_port/health"
+#         local health_url="http://localhost:$service_port/health"
 
-        if [[ "$TARGET_ENVIRONMENT" != "local" ]]; then
-            local namespace
-            namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
+#         if [[ "$TARGET_ENVIRONMENT" != "local" ]]; then
+#             local namespace
+#             namespace=$(get_config_value "environments.${TARGET_ENVIRONMENT}.namespace")
 
-            if [[ -n "$deployment_variant" ]]; then
-                health_url="http://dreamscape-${service_name}-service-${deployment_variant}.${namespace}.svc.cluster.local/health"
-            else
-                health_url="http://dreamscape-${service_name}-service.${namespace}.svc.cluster.local/health"
-            fi
-        fi
+#             if [[ -n "$deployment_variant" ]]; then
+#                 health_url="http://dreamscape-${service_name}-service-${deployment_variant}.${namespace}.svc.cluster.local/health"
+#             else
+#                 health_url="http://dreamscape-${service_name}-service.${namespace}.svc.cluster.local/health"
+#             fi
+#         fi
 
-        if ! check_service_health "$health_url" 10 3; then
-            return 1
-        fi
-    done
+#         if ! check_service_health "$health_url" 10 3; then
+#             return 1
+#         fi
+#     done
 
-    return 0
-}
+#     return 0
+# }
 
 # Get pod services detailed
 get_pod_services_detailed() {
