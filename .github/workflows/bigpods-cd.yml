@@ -484,9 +484,77 @@ jobs:
             exit 1
           fi
 
+      - name: 🔒 Prepare production env config
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p config
+
+          default_db_url="postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod"
+          default_redis_url="redis://:redis_production_password_123@dreamscape-redis:6379"
+
+          jwt_secret_val="${JWT_SECRET:-prod-jwt-secret}"
+          jwt_refresh_secret_val="${JWT_REFRESH_SECRET:-prod-jwt-refresh-secret}"
+          database_url_val="${DATABASE_URL:-$default_db_url}"
+          redis_url_val="${REDIS_URL:-$default_redis_url}"
+          stripe_secret_val="${STRIPE_SECRET_KEY:-sk_live_dummy_secret_key}"
+          openai_api_key_val="${OPENAI_API_KEY:-sk-openai-placeholder}"
+
+          cat > config/production.env <<EOF
+JWT_SECRET=${jwt_secret_val}
+JWT_REFRESH_SECRET=${jwt_refresh_secret_val}
+DATABASE_URL=${database_url_val}
+REDIS_URL=${redis_url_val}
+STRIPE_SECRET_KEY=${stripe_secret_val}
+OPENAI_API_KEY=${openai_api_key_val}
+EOF
+
+          {
+            echo "JWT_SECRET=${jwt_secret_val}"
+            echo "JWT_REFRESH_SECRET=${jwt_refresh_secret_val}"
+            echo "DATABASE_URL=${database_url_val}"
+            echo "REDIS_URL=${redis_url_val}"
+            echo "STRIPE_SECRET_KEY=${stripe_secret_val}"
+            echo "OPENAI_API_KEY=${openai_api_key_val}"
+          } >> $GITHUB_ENV
+
       - name: 📦 Bootstrap production k8s resources
         run: |
           kubectl apply -f k8s/bigpods-production-bootstrap.yaml
+
+      - name: 🔐 Sync production secrets to cluster
+        run: |
+          set -euo pipefail
+
+          # Ensure namespace exists (bootstrap should create it, but be defensive)
+          kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl -n production create secret generic bigpods-production-secrets \
+            --from-literal=JWT_SECRET="${JWT_SECRET}" \
+            --from-literal=JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET}" \
+            --from-literal=DATABASE_URL="${DATABASE_URL}" \
+            --from-literal=REDIS_URL="${REDIS_URL}" \
+            --from-literal=STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}" \
+            --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Inject secrets into deployments to avoid missing env vars at startup
+          for dep in auth-service user-service voyage-service payment-service ai-service; do
+            kubectl -n production set env deployment/"$dep" \
+              JWT_SECRET="${JWT_SECRET}" \
+              JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET}" \
+              DATABASE_URL="${DATABASE_URL}" \
+              REDIS_URL="${REDIS_URL}" \
+              STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}" \
+              OPENAI_API_KEY="${OPENAI_API_KEY}" || true
+          done
 
       - name: ✅ Pre-production Ready
         run: |
