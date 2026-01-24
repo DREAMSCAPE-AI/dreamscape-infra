@@ -484,44 +484,6 @@ jobs:
             exit 1
           fi
 
-      - name: 🗂 Prepare production env config (parity with staging defaults)
-        env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p config
-
-          jwt_secret_val="${JWT_SECRET:-dev-jwt-secret}"
-          jwt_refresh_secret_val="${JWT_REFRESH_SECRET:-dev-jwt-secret}"
-          database_url_val="${DATABASE_URL:-postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape}"
-          redis_url_val="${REDIS_URL:-redis://:redis_staging_password_123@dreamscape-redis:6379}"
-          stripe_secret_val="${STRIPE_SECRET_KEY:-sk_test_dummy_secret_key}"
-          openai_api_key_val="${OPENAI_API_KEY:-sk-openai-placeholder}"
-
-          cat > config/production.env <<EOF
-JWT_SECRET=${jwt_secret_val}
-JWT_REFRESH_SECRET=${jwt_refresh_secret_val}
-DATABASE_URL=${database_url_val}
-REDIS_URL=${redis_url_val}
-STRIPE_SECRET_KEY=${stripe_secret_val}
-OPENAI_API_KEY=${openai_api_key_val}
-EOF
-
-          {
-            echo "JWT_SECRET=${jwt_secret_val}"
-            echo "JWT_REFRESH_SECRET=${jwt_refresh_secret_val}"
-            echo "DATABASE_URL=${database_url_val}"
-            echo "REDIS_URL=${redis_url_val}"
-            echo "STRIPE_SECRET_KEY=${stripe_secret_val}"
-            echo "OPENAI_API_KEY=${openai_api_key_val}"
-          } >> $GITHUB_ENV
-
       - name: 📦 Bootstrap production k8s resources
         run: |
           kubectl apply -f k8s/bigpods-production-bootstrap.yaml
