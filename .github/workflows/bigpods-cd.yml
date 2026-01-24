@@ -505,13 +505,13 @@ jobs:
           openai_api_key_val="${OPENAI_API_KEY:-sk-openai-placeholder}"
 
           cat > config/production.env <<EOF
-JWT_SECRET=${jwt_secret_val}
-JWT_REFRESH_SECRET=${jwt_refresh_secret_val}
-DATABASE_URL=${database_url_val}
-REDIS_URL=${redis_url_val}
-STRIPE_SECRET_KEY=${stripe_secret_val}
-OPENAI_API_KEY=${openai_api_key_val}
-EOF
+          JWT_SECRET=${jwt_secret_val}
+          JWT_REFRESH_SECRET=${jwt_refresh_secret_val}
+          DATABASE_URL=${database_url_val}
+          REDIS_URL=${redis_url_val}
+          STRIPE_SECRET_KEY=${stripe_secret_val}
+          OPENAI_API_KEY=${openai_api_key_val}
+          EOF
 
           {
             echo "JWT_SECRET=${jwt_secret_val}"
