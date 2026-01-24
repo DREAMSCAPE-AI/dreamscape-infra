@@ -22,7 +22,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          args: ["redis-server","--appendonly","yes","--requirepass","redis_staging_password_123"]
+          args: ["redis-server","--appendonly","yes","--requirepass","redis_production_password_123"]
           ports:
             - containerPort: 6379
 ---
@@ -59,11 +59,11 @@ spec:
           image: postgres:15-alpine
           env:
             - name: POSTGRES_DB
-              value: dreamscape
+              value: dreamscape_prod
             - name: POSTGRES_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: POSTGRES_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
           ports:
             - containerPort: 5432
 ---
@@ -106,39 +106,39 @@ spec:
             - name: PORT
               value: "3001"
             - name: DATABASE_URL
-              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+              value: postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod
             - name: DB_HOST
               value: dreamscape-postgres
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: DB_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
             - name: DB_NAME
-              value: dreamscape
+              value: dreamscape_prod
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+              value: redis://:redis_production_password_123@dreamscape-redis:6379
             - name: REDIS_PASSWORD
-              value: "redis_staging_password_123"
+              value: "redis_production_password_123"
             - name: JWT_SECRET
-              value: dev-jwt-secret
+              value: prod-jwt-secret
             - name: JWT_REFRESH_SECRET
-              value: dev-jwt-secret
+              value: prod-jwt-refresh-secret
             - name: CLIENT_URL
               value: http://dreamscape-web-client-service:5173
             - name: CORS_ORIGIN
               value: http://dreamscape-web-client-service:5173
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: amadeus_prod_key
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: amadeus_prod_secret
             - name: AMADEUS_BASE_URL
-              value: https://test.api.amadeus.com
+              value: https://api.amadeus.com
 ---
 apiVersion: v1
 kind: Service
@@ -178,39 +178,39 @@ spec:
             - name: PORT
               value: "3002"
             - name: DATABASE_URL
-              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+              value: postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod
             - name: DB_HOST
               value: dreamscape-postgres
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: DB_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
             - name: DB_NAME
-              value: dreamscape
+              value: dreamscape_prod
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+              value: redis://:redis_production_password_123@dreamscape-redis:6379
             - name: REDIS_PASSWORD
-              value: "redis_staging_password_123"
+              value: "redis_production_password_123"
             - name: JWT_SECRET
-              value: dev-jwt-secret
+              value: prod-jwt-secret
             - name: JWT_REFRESH_SECRET
-              value: dev-jwt-secret
+              value: prod-jwt-refresh-secret
             - name: CLIENT_URL
               value: http://dreamscape-web-client-service:5173
             - name: CORS_ORIGIN
               value: http://dreamscape-web-client-service:5173
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: amadeus_prod_key
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: amadeus_prod_secret
             - name: AMADEUS_BASE_URL
-              value: https://test.api.amadeus.com
+              value: https://api.amadeus.com
 ---
 apiVersion: v1
 kind: Service
@@ -251,23 +251,23 @@ spec:
             - name: PORT
               value: "3003"
             - name: DATABASE_URL
-              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+              value: postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod
             - name: DB_HOST
               value: dreamscape-postgres
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: DB_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
             - name: DB_NAME
-              value: dreamscape
+              value: dreamscape_prod
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+              value: redis://:redis_production_password_123@dreamscape-redis:6379
             - name: S3_ENDPOINT
               value: http://minio:9000
             - name: S3_BUCKET
@@ -281,11 +281,11 @@ spec:
             - name: CORS_ORIGIN
               value: http://dreamscape-web-client-service:5173
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: amadeus_prod_key
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: amadeus_prod_secret
             - name: AMADEUS_BASE_URL
-              value: https://test.api.amadeus.com
+              value: https://api.amadeus.com
 ---
 apiVersion: v1
 kind: Service
@@ -325,31 +325,31 @@ spec:
             - name: PORT
               value: "3005"
             - name: DATABASE_URL
-              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+              value: postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod
             - name: DB_HOST
               value: dreamscape-postgres
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: DB_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
             - name: DB_NAME
-              value: dreamscape
+              value: dreamscape_prod
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+              value: redis://:redis_production_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
               value: http://dreamscape-gateway-service:3000
             - name: STRIPE_SECRET_KEY
-              value: sk_test_dummy_secret_key
+              value: sk_live_dummy_secret_key
             - name: STRIPE_PUBLISHABLE_KEY
-              value: pk_test_dummy_publishable_key
+              value: pk_live_dummy_publishable_key
             - name: STRIPE_WEBHOOK_SECRET
-              value: whsec_dummy_webhook_secret
+              value: whsec_live_dummy_webhook_secret
 ---
 apiVersion: v1
 kind: Service
@@ -389,33 +389,33 @@ spec:
             - name: PORT
               value: "3004"
             - name: DATABASE_URL
-              value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
+              value: postgresql://dreamscape_prod_user:dreamscape_prod_password@dreamscape-postgres:5432/dreamscape_prod
             - name: DB_HOST
               value: dreamscape-postgres
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: dreamscape_user
+              value: dreamscape_prod_user
             - name: DB_PASSWORD
-              value: dreamscape_password
+              value: dreamscape_prod_password
             - name: DB_NAME
-              value: dreamscape
+              value: dreamscape_prod
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_URL
-              value: redis://:redis_staging_password_123@dreamscape-redis:6379
+              value: redis://:redis_production_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
               value: http://dreamscape-web-client-service:5173
             - name: CORS_ORIGIN
               value: http://dreamscape-web-client-service:5173
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: amadeus_prod_key
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: amadeus_prod_secret
             - name: AMADEUS_BASE_URL
-              value: https://test.api.amadeus.com
+              value: https://api.amadeus.com
 ---
 apiVersion: v1
 kind: Service
