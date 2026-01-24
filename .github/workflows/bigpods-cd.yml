@@ -484,6 +484,10 @@ jobs:
             exit 1
           fi
 
+      - name: 📦 Bootstrap production k8s resources
+        run: |
+          kubectl apply -f k8s/bigpods-production-bootstrap.yaml
+
       - name: ✅ Pre-production Ready
         run: |
           echo "✅ Ready for production deployment"
