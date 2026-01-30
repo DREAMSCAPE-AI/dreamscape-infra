@@ -51,6 +51,8 @@ services:
     build:
       context: ./bigpods/experience-pod
       dockerfile: Dockerfile
+      args:
+        BUILD_MODE: ${BUILD_MODE:-production}
     container_name: dreamscape-experience-pod
     restart: unless-stopped
     ports:

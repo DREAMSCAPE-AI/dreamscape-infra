@@ -202,12 +202,15 @@ jobs:
       - name: 🏗️ Build ${{ matrix.pod }} Pod
         working-directory: scripts/bigpods
         timeout-minutes: 20
+        env:
+          BUILD_MODE: ${{ needs.pre-deployment.outputs.target-environment }}
         run: |
           echo "🏗️ Building ${{ matrix.pod }} pod..."
+          echo "📦 Build mode: $BUILD_MODE"
 
           version="${{ needs.pre-deployment.outputs.deployment-version }}"
 
-          # Build with version tag
+          # Build with version tag and environment-specific mode
           ./build-bigpods.sh \
             -v "$version" \
             --push \
