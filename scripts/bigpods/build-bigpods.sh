@@ -323,9 +323,12 @@ build_pod() {
         build_options="$build_options --parallel"
     fi
 
-    local full_build_cmd="cd '$DOCKER_DIR' && $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
+    # Pass BUILD_MODE to docker-compose (defaults to production if not set)
+    local build_mode="${BUILD_MODE:-production}"
+    local full_build_cmd="cd '$DOCKER_DIR' && BUILD_MODE='$build_mode' $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
 
     log_verbose "Build command: $full_build_cmd"
+    log_info "Build mode: $build_mode"
 
     # Execute build with timeout
     if timeout "$BUILD_TIMEOUT" bash -c "$full_build_cmd"; then
