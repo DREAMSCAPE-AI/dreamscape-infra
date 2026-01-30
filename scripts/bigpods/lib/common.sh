@@ -229,11 +229,15 @@ detect_repository_changes() {
     return 1
 }
 
-# Service health functions
 check_service_health() {
     local service_url="$1"
     local timeout="${2:-30}"
     local max_attempts="${3:-10}"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        log_warning "curl not available, skipping health check for $service_url"
+        return 0
+    fi
 
     log_verbose "Checking health of $service_url"
 

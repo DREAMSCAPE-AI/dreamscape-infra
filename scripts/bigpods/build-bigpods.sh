@@ -4,6 +4,7 @@
 
 # Import common functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"  # Define before sourcing common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
 # Script-specific variables
@@ -299,7 +300,8 @@ build_pod() {
     local compose_file
     compose_file=$(get_pod_docker_compose "$pod_name")
 
-    local full_compose_path="../../docker/$compose_file"
+    local DOCKER_DIR="$REPO_ROOT/docker"
+    local full_compose_path="$DOCKER_DIR/$compose_file"
 
     if [[ ! -f "$full_compose_path" ]]; then
         log_error "Docker Compose file not found: $full_compose_path"
@@ -311,7 +313,6 @@ build_pod() {
     # Prepare build command
     local compose_cmd
     compose_cmd=$(check_docker_compose)
-    local DOCKER_DIR="../../docker"
 
     local build_options=""
     if [[ "$NO_CACHE" == "true" ]]; then
