@@ -18,7 +18,15 @@ const BUSINESS_POD_URL = process.env.BUSINESS_POD_URL || 'http://business-pod:30
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost', 'http://localhost:80', 'http://localhost:8080'],
+  origin: [
+    'http://localhost',
+    'http://localhost:80',
+    'http://localhost:8080',
+    'http://79.72.27.180',
+    'http://79.72.27.180:80',
+    'http://84.235.237.183',
+    'http://84.235.237.183:80'
+  ],
   credentials: true
 }));
 
