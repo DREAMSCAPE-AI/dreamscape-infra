@@ -98,102 +98,35 @@ app.get('/api', (req, res) => {
   });
 });
 
-// API Proxy - mount each service on its own path
-// Express strips the mount path, so we need to add it back with pathRewrite
-app.use('/api/v1/auth', createProxyMiddleware({
-  target: AUTH_SERVICE_URL,
+// API Proxy - use router to dynamically select target
+// Mount on root and use filter to match paths
+const apiProxy = createProxyMiddleware({
+  router: (req) => {
+    if (req.path.startsWith('/api/v1/auth')) return AUTH_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/users')) return USER_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/voyages')) return VOYAGE_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/ai')) return AI_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/payment')) return PAYMENT_SERVICE_URL;
+    if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
+    return AUTH_SERVICE_URL; // fallback
+  },
   changeOrigin: true,
   timeout: 30000,
-  proxyTimeout: 30000,
-  pathRewrite: (path) => {
-    // If path already starts with /api, don't add it again
-    if (path.startsWith('/api')) return path;
-    // Otherwise add the mount path back
-    return '/api/v1/auth' + path;
-  },
   onProxyReq: (proxyReq, req, res) => {
-    console.log(`[HPM] Auth: ${req.method} ${req.originalUrl} -> ${AUTH_SERVICE_URL}${proxyReq.path}`);
+    console.log(`[HPM] Proxying ${req.method} ${req.path} -> ${proxyReq.path}`);
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Auth Response: ${proxyRes.statusCode}`);
+    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.path}`);
   },
   onError: (err, req, res) => {
-    console.error('[HPM] Auth error:', err.message);
+    console.error('[HPM] Proxy error:', err.message);
     if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'Auth service unavailable' });
+      res.status(503).json({ success: false, error: 'Service unavailable' });
     }
   }
-}));
+});
 
-app.use('/api/v1/users', createProxyMiddleware({
-  target: USER_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/users' + path,
-  onError: (err, req, res) => {
-    console.error('[HPM] User error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'User service unavailable' });
-    }
-  }
-}));
-
-app.use('/api/v1/voyages', createProxyMiddleware({
-  target: VOYAGE_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/voyages' + path,
-  onError: (err, req, res) => {
-    console.error('[HPM] Voyage error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'Voyage service unavailable' });
-    }
-  }
-}));
-
-app.use('/api/v1/ai', createProxyMiddleware({
-  target: AI_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 60000,
-  proxyTimeout: 60000,
-  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/ai' + path,
-  onError: (err, req, res) => {
-    console.error('[HPM] AI error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'AI service unavailable' });
-    }
-  }
-}));
-
-app.use('/api/v1/payment', createProxyMiddleware({
-  target: PAYMENT_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/payment' + path,
-  onError: (err, req, res) => {
-    console.error('[HPM] Payment error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'Payment service unavailable' });
-    }
-  }
-}));
-
-app.use('/api/vr', createProxyMiddleware({
-  target: PANORAMA_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/vr' + path,
-  onError: (err, req, res) => {
-    console.error('[HPM] VR error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'VR service unavailable' });
-    }
-  }
-}));
+app.use('/api', apiProxy);
 
 // Status endpoint
 app.get('/status', (req, res) => {
