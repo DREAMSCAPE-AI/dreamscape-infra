@@ -98,45 +98,94 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Unified API Proxy with dynamic routing
-app.use('/api', createProxyMiddleware({
+// API Proxy - mount each service on its own path
+// Express strips the mount path, so we need to add it back with pathRewrite
+app.use('/api/v1/auth', createProxyMiddleware({
+  target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  router: (req) => {
-    // Route based on path prefix (path has /api stripped by Express)
-    if (req.path.startsWith('/v1/auth')) return AUTH_SERVICE_URL;
-    if (req.path.startsWith('/v1/users')) return USER_SERVICE_URL;
-    if (req.path.startsWith('/v1/voyages')) return VOYAGE_SERVICE_URL;
-    if (req.path.startsWith('/v1/ai')) return AI_SERVICE_URL;
-    if (req.path.startsWith('/v1/payment')) return PAYMENT_SERVICE_URL;
-    if (req.path.startsWith('/vr')) return PANORAMA_SERVICE_URL;
-    return AUTH_SERVICE_URL; // Default fallback
-  },
-  pathRewrite: (path, req) => {
-    // Express strips /api from the path, we need to add it back
-    return '/api' + path;
-  },
   timeout: 30000,
   proxyTimeout: 30000,
+  pathRewrite: (path) => '/api/v1/auth' + path,
   onProxyReq: (proxyReq, req, res) => {
-    const target = proxyReq.path.startsWith('/api/v1/auth') ? AUTH_SERVICE_URL :
-                   proxyReq.path.startsWith('/api/v1/users') ? USER_SERVICE_URL :
-                   proxyReq.path.startsWith('/api/v1/voyages') ? VOYAGE_SERVICE_URL :
-                   proxyReq.path.startsWith('/api/v1/ai') ? AI_SERVICE_URL :
-                   proxyReq.path.startsWith('/api/v1/payment') ? PAYMENT_SERVICE_URL :
-                   PANORAMA_SERVICE_URL;
-    console.log(`[HPM] Proxying ${req.method} ${proxyReq.path} -> ${target}${proxyReq.path}`);
+    console.log(`[HPM] Auth: ${req.method} ${req.originalUrl} -> ${AUTH_SERVICE_URL}${proxyReq.path}`);
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.url}`);
+    console.log(`[HPM] Auth Response: ${proxyRes.statusCode}`);
   },
   onError: (err, req, res) => {
-    console.error('[HPM] Proxy error:', err.message);
+    console.error('[HPM] Auth error:', err.message);
     if (!res.headersSent) {
-      res.status(503).json({
-        success: false,
-        error: 'Service unavailable',
-        message: 'The requested service is temporarily unavailable'
-      });
+      res.status(503).json({ success: false, error: 'Auth service unavailable' });
+    }
+  }
+}));
+
+app.use('/api/v1/users', createProxyMiddleware({
+  target: USER_SERVICE_URL,
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: (path) => '/api/v1/users' + path,
+  onError: (err, req, res) => {
+    console.error('[HPM] User error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'User service unavailable' });
+    }
+  }
+}));
+
+app.use('/api/v1/voyages', createProxyMiddleware({
+  target: VOYAGE_SERVICE_URL,
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: (path) => '/api/v1/voyages' + path,
+  onError: (err, req, res) => {
+    console.error('[HPM] Voyage error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'Voyage service unavailable' });
+    }
+  }
+}));
+
+app.use('/api/v1/ai', createProxyMiddleware({
+  target: AI_SERVICE_URL,
+  changeOrigin: true,
+  timeout: 60000,
+  proxyTimeout: 60000,
+  pathRewrite: (path) => '/api/v1/ai' + path,
+  onError: (err, req, res) => {
+    console.error('[HPM] AI error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'AI service unavailable' });
+    }
+  }
+}));
+
+app.use('/api/v1/payment', createProxyMiddleware({
+  target: PAYMENT_SERVICE_URL,
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: (path) => '/api/v1/payment' + path,
+  onError: (err, req, res) => {
+    console.error('[HPM] Payment error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'Payment service unavailable' });
+    }
+  }
+}));
+
+app.use('/api/vr', createProxyMiddleware({
+  target: PANORAMA_SERVICE_URL,
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: (path) => '/api/vr' + path,
+  onError: (err, req, res) => {
+    console.error('[HPM] VR error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'VR service unavailable' });
     }
   }
 }));
