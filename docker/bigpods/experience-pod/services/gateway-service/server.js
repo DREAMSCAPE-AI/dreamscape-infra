@@ -99,14 +99,17 @@ app.get('/api', (req, res) => {
 });
 
 // Core Pod proxy (Auth, Users)
-// Support both /api/auth and /api/v1/auth paths
 app.use(['/api/v1/auth'], createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  timeout: 30000,
-  logLevel: 'debug',
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`[HPM] Proxying ${req.method} ${req.url} -> ${AUTH_SERVICE_URL}${req.url}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`[HPM] Response ${proxyRes.statusCode} from ${AUTH_SERVICE_URL}${req.url}`);
+  },
   onError: (err, req, res) => {
-    console.error('Auth Service proxy error:', err.message);
+    console.error('[HPM] Auth Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'Auth Service unavailable',
@@ -119,8 +122,7 @@ app.use(['/api/v1/users'], createProxyMiddleware({
   target: USER_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-  logLevel: 'debug',
-  onError: (err, req, res) => {
+    onError: (err, req, res) => {
     console.error('User Service proxy error:', err.message);
     res.status(503).json({
       success: false,
@@ -135,8 +137,7 @@ app.use(['/api/v1/voyages'], createProxyMiddleware({
   target: VOYAGE_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-  logLevel: 'debug',
-  onError: (err, req, res) => {
+    onError: (err, req, res) => {
     console.error('Voyage Service proxy error:', err.message);
     res.status(503).json({
       success: false,
@@ -150,8 +151,7 @@ app.use(['/api/v1/ai'], createProxyMiddleware({
   target: AI_SERVICE_URL,
   changeOrigin: true,
   timeout: 60000, // AI requests can take longer
-  logLevel: 'debug',
-  onError: (err, req, res) => {
+    onError: (err, req, res) => {
     console.error('AI Service proxy error:', err.message);
     res.status(503).json({
       success: false,
@@ -165,8 +165,7 @@ app.use(['/api/v1/payment'], createProxyMiddleware({
   target: PAYMENT_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-  logLevel: 'debug',
-  onError: (err, req, res) => {
+    onError: (err, req, res) => {
     console.error('Payment Service proxy error:', err.message);
     res.status(503).json({
       success: false,
