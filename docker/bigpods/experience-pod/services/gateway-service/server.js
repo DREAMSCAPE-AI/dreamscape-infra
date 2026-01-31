@@ -98,114 +98,42 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Core Pod proxy (Auth, Users)
-app.use(createProxyMiddleware({
-  target: AUTH_SERVICE_URL,
+// Unified API Proxy with dynamic routing
+app.use('/api', createProxyMiddleware({
   changeOrigin: true,
+  router: (req) => {
+    // Route based on path prefix
+    if (req.path.startsWith('/v1/auth')) return AUTH_SERVICE_URL;
+    if (req.path.startsWith('/v1/users')) return USER_SERVICE_URL;
+    if (req.path.startsWith('/v1/voyages')) return VOYAGE_SERVICE_URL;
+    if (req.path.startsWith('/v1/ai')) return AI_SERVICE_URL;
+    if (req.path.startsWith('/v1/payment')) return PAYMENT_SERVICE_URL;
+    if (req.path.startsWith('/vr')) return PANORAMA_SERVICE_URL;
+    return AUTH_SERVICE_URL; // Default fallback
+  },
   timeout: 30000,
   proxyTimeout: 30000,
-  filter: (pathname, req) => pathname.startsWith('/api/v1/auth'),
   onProxyReq: (proxyReq, req, res) => {
-    console.log(`[HPM] Proxying ${req.method} ${req.url} -> ${AUTH_SERVICE_URL}${req.url}`);
+    const target = proxyReq.path.startsWith('/api/v1/auth') ? AUTH_SERVICE_URL :
+                   proxyReq.path.startsWith('/api/v1/users') ? USER_SERVICE_URL :
+                   proxyReq.path.startsWith('/api/v1/voyages') ? VOYAGE_SERVICE_URL :
+                   proxyReq.path.startsWith('/api/v1/ai') ? AI_SERVICE_URL :
+                   proxyReq.path.startsWith('/api/v1/payment') ? PAYMENT_SERVICE_URL :
+                   PANORAMA_SERVICE_URL;
+    console.log(`[HPM] Proxying ${req.method} ${proxyReq.path} -> ${target}${proxyReq.path}`);
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Response ${proxyRes.statusCode} from ${AUTH_SERVICE_URL}${req.url}`);
+    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.url}`);
   },
   onError: (err, req, res) => {
-    console.error('[HPM] Auth Service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'Auth Service unavailable',
-      message: 'Authentication service is temporarily unavailable'
-    });
-  }
-}));
-
-app.use(createProxyMiddleware({
-  target: USER_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  filter: (pathname, req) => pathname.startsWith('/api/v1/users'),
-  onProxyReq: (proxyReq, req, res) => {
-    console.log(`[HPM] Proxying ${req.method} ${req.url} -> ${USER_SERVICE_URL}${req.url}`);
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Response ${proxyRes.statusCode} from ${USER_SERVICE_URL}${req.url}`);
-  },
-  onError: (err, req, res) => {
-    console.error('[HPM] User Service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'User Service unavailable',
-      message: 'User service is temporarily unavailable'
-    });
-  }
-}));
-
-// Business Pod proxy (Voyages, AI, Payment)
-app.use(createProxyMiddleware({
-  target: VOYAGE_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  filter: (pathname, req) => pathname.startsWith('/api/v1/voyages'),
-  onError: (err, req, res) => {
-    console.error('[HPM] Voyage Service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'Voyage Service unavailable',
-      message: 'Voyage service is temporarily unavailable'
-    });
-  }
-}));
-
-app.use(createProxyMiddleware({
-  target: AI_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 60000, // AI requests can take longer
-  proxyTimeout: 60000,
-  filter: (pathname, req) => pathname.startsWith('/api/v1/ai'),
-  onError: (err, req, res) => {
-    console.error('[HPM] AI Service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'AI Service unavailable',
-      message: 'AI service is temporarily unavailable'
-    });
-  }
-}));
-
-app.use(createProxyMiddleware({
-  target: PAYMENT_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  filter: (pathname, req) => pathname.startsWith('/api/v1/payment'),
-  onError: (err, req, res) => {
-    console.error('[HPM] Payment Service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'Payment Service unavailable',
-      message: 'Payment service is temporarily unavailable'
-    });
-  }
-}));
-
-// Local VR API (handled by panorama service)
-app.use(createProxyMiddleware({
-  target: PANORAMA_SERVICE_URL,
-  changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
-  filter: (pathname, req) => pathname.startsWith('/api/vr'),
-  onError: (err, req, res) => {
-    console.error('[HPM] Panorama service proxy error:', err.message);
-    res.status(503).json({
-      success: false,
-      error: 'VR Service unavailable',
-      message: 'VR content service is temporarily unavailable'
-    });
+    console.error('[HPM] Proxy error:', err.message);
+    if (!res.headersSent) {
+      res.status(503).json({
+        success: false,
+        error: 'Service unavailable',
+        message: 'The requested service is temporarily unavailable'
+      });
+    }
   }
 }));
 
