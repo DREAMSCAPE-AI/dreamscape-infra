@@ -158,7 +158,7 @@ COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/node_modules /app/auth/
 COPY --from=auth-builder --chown=nodejs:nodejs /app/auth/package.json /app/auth/package.json
 
 # Créer tsconfig.json runtime pour auth
-RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/auth/src/types/index.js"],"@services/*":["dist/auth/src/services/*"],"@middleware/*":["dist/auth/src/middleware/*"],"@config/*":["dist/auth/src/config/*"],"@routes/*":["dist/auth/src/routes/*"],"@database/*":["dist/auth/src/database/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/auth/tsconfig.json
+RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types":["dist/auth/src/types/index.js"],"@services/*":["dist/auth/src/services/*"],"@middleware/*":["dist/auth/src/middleware/*"],"@config/*":["dist/auth/src/config/*"],"@routes/*":["dist/auth/src/routes/*"],"@database/*":["dist/auth/src/database/*"],"@dreamscape/db":["../db/dist/index.js"],"@dreamscape/kafka":["../shared/kafka/dist/index.js"]}}}' > /app/auth/tsconfig.json
 
 # Créer symlinks @dreamscape/* pour auth
 RUN mkdir -p /app/auth/node_modules/@dreamscape && \
@@ -173,7 +173,7 @@ COPY --from=user-builder --chown=nodejs:nodejs /app/user/node_modules /app/user/
 COPY --from=user-builder --chown=nodejs:nodejs /app/user/package.json /app/user/package.json
 
 # Créer tsconfig.json runtime pour user
-RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types/*":["dist/user/src/types/*"],"@types_onboarding":["dist/user/src/types/onboarding.js"],"@services/*":["dist/user/src/services/*"],"@middleware/*":["dist/user/src/middleware/*"],"@controllers/*":["dist/user/src/controllers/*"],"@routes/*":["dist/user/src/routes/*"],"@dreamscape/db":["../db/dist/index.js"]}}}' > /app/user/tsconfig.json
+RUN echo '{"compilerOptions":{"baseUrl":".","paths":{"@types/*":["dist/user/src/types/*"],"@types_onboarding":["dist/user/src/types/onboarding.js"],"@services/*":["dist/user/src/services/*"],"@middleware/*":["dist/user/src/middleware/*"],"@controllers/*":["dist/user/src/controllers/*"],"@routes/*":["dist/user/src/routes/*"],"@dreamscape/db":["../db/dist/index.js"],"@dreamscape/kafka":["../shared/kafka/dist/index.js"]}}}' > /app/user/tsconfig.json
 
 # Créer symlinks @dreamscape/* pour user
 RUN mkdir -p /app/user/node_modules/@dreamscape && \
