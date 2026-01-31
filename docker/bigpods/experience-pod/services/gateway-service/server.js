@@ -102,7 +102,7 @@ app.get('/api', (req, res) => {
 app.use('/api', createProxyMiddleware({
   changeOrigin: true,
   router: (req) => {
-    // Route based on path prefix
+    // Route based on path prefix (path has /api stripped by Express)
     if (req.path.startsWith('/v1/auth')) return AUTH_SERVICE_URL;
     if (req.path.startsWith('/v1/users')) return USER_SERVICE_URL;
     if (req.path.startsWith('/v1/voyages')) return VOYAGE_SERVICE_URL;
@@ -110,6 +110,10 @@ app.use('/api', createProxyMiddleware({
     if (req.path.startsWith('/v1/payment')) return PAYMENT_SERVICE_URL;
     if (req.path.startsWith('/vr')) return PANORAMA_SERVICE_URL;
     return AUTH_SERVICE_URL; // Default fallback
+  },
+  pathRewrite: (path, req) => {
+    // Express strips /api from the path, we need to add it back
+    return '/api' + path;
   },
   timeout: 30000,
   proxyTimeout: 30000,
