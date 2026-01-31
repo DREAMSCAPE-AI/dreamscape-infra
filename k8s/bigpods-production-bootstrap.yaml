@@ -130,9 +130,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: amadeus_test_key
             - name: AMADEUS_API_SECRET
@@ -202,9 +202,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: amadeus_test_key
             - name: AMADEUS_API_SECRET
@@ -277,9 +277,9 @@ spec:
             - name: S3_SECRET_KEY
               value: minioadmin123
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: amadeus_test_key
             - name: AMADEUS_API_SECRET
@@ -407,9 +407,9 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: amadeus_test_key
             - name: AMADEUS_API_SECRET
@@ -476,7 +476,7 @@ spec:
     app: gateway-service
   ports:
     - port: 3000
-      targetPort: 3007
+      targetPort: 3000
 ---
 apiVersion: apps/v1
 kind: Deployment
