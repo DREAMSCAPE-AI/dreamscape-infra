@@ -23,6 +23,7 @@ const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://payment-s
 const PANORAMA_SERVICE_URL = process.env.PANORAMA_SERVICE_URL || 'http://localhost:3006';
 
 // Middleware
+// CORS must be first to handle preflight requests
 app.use(cors({
   origin: [
     'http://localhost',
@@ -35,9 +36,6 @@ app.use(cors({
   ],
   credentials: true
 }));
-
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -56,6 +54,48 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${req.ip}`);
   next();
 });
+
+// API Proxy - MUST be BEFORE body parsers to access raw body stream
+// Mount on root / to preserve full paths
+const apiProxy = createProxyMiddleware({
+  filter: (pathname) => pathname.startsWith('/api'),
+  router: (req) => {
+    // Full path is preserved when mounted on /
+    if (req.path.startsWith('/api/v1/auth')) return AUTH_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/users')) return USER_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/voyages')) return VOYAGE_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/ai')) return AI_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/payment')) return PAYMENT_SERVICE_URL;
+    if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
+    return AUTH_SERVICE_URL; // fallback
+  },
+  changeOrigin: true,
+  timeout: 30000,
+  onProxyReq: (proxyReq, req, res) => {
+    const target = req.path.startsWith('/api/v1/auth') ? AUTH_SERVICE_URL :
+                   req.path.startsWith('/api/v1/users') ? USER_SERVICE_URL :
+                   req.path.startsWith('/api/v1/voyages') ? VOYAGE_SERVICE_URL :
+                   req.path.startsWith('/api/v1/ai') ? AI_SERVICE_URL :
+                   req.path.startsWith('/api/v1/payment') ? PAYMENT_SERVICE_URL :
+                   PANORAMA_SERVICE_URL;
+    console.log(`[HPM] Proxying ${req.method} ${req.originalUrl} -> ${target}${proxyReq.path}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.originalUrl}`);
+  },
+  onError: (err, req, res) => {
+    console.error('[HPM] Proxy error:', err.message, err.code);
+    if (!res.headersSent) {
+      res.status(503).json({ success: false, error: 'Service unavailable' });
+    }
+  }
+});
+
+app.use(apiProxy);
+
+// Body parsers - AFTER proxy to avoid consuming body stream
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -97,38 +137,6 @@ app.get('/api', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-// API Proxy - use router to dynamically select target
-// Mount on root / to preserve full paths
-const apiProxy = createProxyMiddleware({
-  filter: (pathname) => pathname.startsWith('/api'),
-  router: (req) => {
-    // Full path is preserved when mounted on /
-    if (req.path.startsWith('/api/v1/auth')) return AUTH_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/users')) return USER_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/voyages')) return VOYAGE_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/ai')) return AI_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/payment')) return PAYMENT_SERVICE_URL;
-    if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
-    return AUTH_SERVICE_URL; // fallback
-  },
-  changeOrigin: true,
-  timeout: 30000,
-  onProxyReq: (proxyReq, req, res) => {
-    console.log(`[HPM] Proxying ${req.method} ${req.originalUrl} -> target${proxyReq.path}`);
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.originalUrl}`);
-  },
-  onError: (err, req, res) => {
-    console.error('[HPM] Proxy error:', err.message);
-    if (!res.headersSent) {
-      res.status(503).json({ success: false, error: 'Service unavailable' });
-    }
-  }
-});
-
-app.use(apiProxy);
 
 // Status endpoint
 app.get('/status', (req, res) => {
