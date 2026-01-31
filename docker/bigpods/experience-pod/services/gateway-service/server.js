@@ -13,8 +13,14 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const PORT = process.env.PORT || 3007;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'gateway-service';
-const CORE_POD_URL = process.env.CORE_POD_URL || 'http://core-pod:3000';
-const BUSINESS_POD_URL = process.env.BUSINESS_POD_URL || 'http://business-pod:3001';
+
+// Service URLs - support both pod-based and individual service deployments
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3001';
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3002';
+const VOYAGE_SERVICE_URL = process.env.VOYAGE_SERVICE_URL || 'http://voyage-service:3003';
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://ai-service:3004';
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://payment-service:3005';
+const PANORAMA_SERVICE_URL = process.env.PANORAMA_SERVICE_URL || 'http://localhost:3006';
 
 // Middleware
 app.use(cors({
@@ -56,11 +62,15 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: SERVICE_NAME,
-    version: '1.2.0',
+    version: '1.3.0',
     timestamp: new Date().toISOString(),
     proxies: {
-      core_pod: CORE_POD_URL,
-      business_pod: BUSINESS_POD_URL
+      auth: AUTH_SERVICE_URL,
+      user: USER_SERVICE_URL,
+      voyage: VOYAGE_SERVICE_URL,
+      ai: AI_SERVICE_URL,
+      payment: PAYMENT_SERVICE_URL,
+      panorama: PANORAMA_SERVICE_URL
     }
   });
 });
@@ -69,17 +79,18 @@ app.get('/health', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     service: SERVICE_NAME,
-    version: '1.2.0',
+    version: '1.3.0',
     description: 'DreamScape API Gateway - Experience Pod',
     endpoints: {
       health: '/health',
       status: '/status',
       metrics: '/metrics',
       api: {
-        auth: '/api/auth/*',
-        users: '/api/users/*',
-        voyages: '/api/voyages/*',
-        ai: '/api/ai/*',
+        auth: ['/api/auth/*', '/api/v1/auth/*'],
+        users: ['/api/users/*', '/api/v1/users/*'],
+        voyages: ['/api/voyages/*', '/api/v1/voyages/*'],
+        ai: ['/api/ai/*', '/api/v1/ai/*'],
+        payment: ['/api/payment/*', '/api/v1/payment/*'],
         vr: '/api/vr/*'
       }
     },
@@ -88,55 +99,72 @@ app.get('/api', (req, res) => {
 });
 
 // Core Pod proxy (Auth, Users)
-app.use('/api/auth', createProxyMiddleware({
-  target: CORE_POD_URL,
+// Support both /api/auth and /api/v1/auth paths
+app.use(['/api/auth', '/api/v1/auth'], createProxyMiddleware({
+  target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
   changeOrigin: true,
+  pathRewrite: {
+    '^/api/v1/auth': '/api/v1/auth',
+    '^/api/auth': '/api/v1/auth'
+  },
   timeout: 30000,
   onError: (err, req, res) => {
-    console.error('Core Pod proxy error:', err.message);
+    console.error('Auth Service proxy error:', err.message);
     res.status(503).json({
       success: false,
-      error: 'Core Pod unavailable',
+      error: 'Auth Service unavailable',
       message: 'Authentication service is temporarily unavailable'
     });
   }
 }));
 
-app.use('/api/users', createProxyMiddleware({
-  target: CORE_POD_URL,
+app.use(['/api/users', '/api/v1/users'], createProxyMiddleware({
+  target: process.env.USER_SERVICE_URL || 'http://user-service:3002',
   changeOrigin: true,
+  pathRewrite: {
+    '^/api/v1/users': '/api/v1/users',
+    '^/api/users': '/api/v1/users'
+  },
   timeout: 30000,
   onError: (err, req, res) => {
-    console.error('Core Pod proxy error:', err.message);
+    console.error('User Service proxy error:', err.message);
     res.status(503).json({
       success: false,
-      error: 'Core Pod unavailable',
+      error: 'User Service unavailable',
       message: 'User service is temporarily unavailable'
     });
   }
 }));
 
-// Business Pod proxy (Voyages, AI)
-app.use('/api/voyages', createProxyMiddleware({
-  target: BUSINESS_POD_URL,
+// Business Pod proxy (Voyages, AI, Payment)
+app.use(['/api/voyages', '/api/v1/voyages'], createProxyMiddleware({
+  target: process.env.VOYAGE_SERVICE_URL || 'http://voyage-service:3003',
   changeOrigin: true,
+  pathRewrite: {
+    '^/api/v1/voyages': '/api/v1/voyages',
+    '^/api/voyages': '/api/v1/voyages'
+  },
   timeout: 30000,
   onError: (err, req, res) => {
-    console.error('Business Pod proxy error:', err.message);
+    console.error('Voyage Service proxy error:', err.message);
     res.status(503).json({
       success: false,
-      error: 'Business Pod unavailable',
+      error: 'Voyage Service unavailable',
       message: 'Voyage service is temporarily unavailable'
     });
   }
 }));
 
-app.use('/api/ai', createProxyMiddleware({
-  target: BUSINESS_POD_URL,
+app.use(['/api/ai', '/api/v1/ai'], createProxyMiddleware({
+  target: process.env.AI_SERVICE_URL || 'http://ai-service:3004',
   changeOrigin: true,
+  pathRewrite: {
+    '^/api/v1/ai': '/api/v1/ai',
+    '^/api/ai': '/api/v1/ai'
+  },
   timeout: 60000, // AI requests can take longer
   onError: (err, req, res) => {
-    console.error('Business Pod AI proxy error:', err.message);
+    console.error('AI Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'AI Service unavailable',
@@ -145,9 +173,27 @@ app.use('/api/ai', createProxyMiddleware({
   }
 }));
 
+app.use(['/api/payment', '/api/v1/payment'], createProxyMiddleware({
+  target: process.env.PAYMENT_SERVICE_URL || 'http://payment-service:3005',
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/v1/payment': '/api/v1/payment',
+    '^/api/payment': '/api/v1/payment'
+  },
+  timeout: 30000,
+  onError: (err, req, res) => {
+    console.error('Payment Service proxy error:', err.message);
+    res.status(503).json({
+      success: false,
+      error: 'Payment Service unavailable',
+      message: 'Payment service is temporarily unavailable'
+    });
+  }
+}));
+
 // Local VR API (handled by panorama service)
 app.use('/api/vr', createProxyMiddleware({
-  target: 'http://localhost:3006',
+  target: PANORAMA_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
   onError: (err, req, res) => {
@@ -167,10 +213,14 @@ app.get('/status', (req, res) => {
     status: 'running',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    version: '1.2.0',
+    version: '1.3.0',
     configuration: {
-      core_pod_url: CORE_POD_URL,
-      business_pod_url: BUSINESS_POD_URL,
+      auth_service_url: AUTH_SERVICE_URL,
+      user_service_url: USER_SERVICE_URL,
+      voyage_service_url: VOYAGE_SERVICE_URL,
+      ai_service_url: AI_SERVICE_URL,
+      payment_service_url: PAYMENT_SERVICE_URL,
+      panorama_service_url: PANORAMA_SERVICE_URL,
       port: PORT
     },
     timestamp: new Date().toISOString()
@@ -204,21 +254,36 @@ app.get('/api/services', (req, res) => {
         name: SERVICE_NAME,
         url: `http://localhost:${PORT}`,
         status: 'running',
-        version: '1.2.0'
+        version: '1.3.0'
+      },
+      auth: {
+        name: 'auth-service',
+        url: AUTH_SERVICE_URL,
+        status: 'unknown'
+      },
+      user: {
+        name: 'user-service',
+        url: USER_SERVICE_URL,
+        status: 'unknown'
+      },
+      voyage: {
+        name: 'voyage-service',
+        url: VOYAGE_SERVICE_URL,
+        status: 'unknown'
+      },
+      ai: {
+        name: 'ai-service',
+        url: AI_SERVICE_URL,
+        status: 'unknown'
+      },
+      payment: {
+        name: 'payment-service',
+        url: PAYMENT_SERVICE_URL,
+        status: 'unknown'
       },
       panorama: {
         name: 'panorama-service',
-        url: 'http://localhost:3006',
-        status: 'unknown'
-      },
-      core_pod: {
-        name: 'core-pod',
-        url: CORE_POD_URL,
-        status: 'unknown'
-      },
-      business_pod: {
-        name: 'business-pod', 
-        url: BUSINESS_POD_URL,
+        url: PANORAMA_SERVICE_URL,
         status: 'unknown'
       }
     },
@@ -270,8 +335,12 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌟 DreamScape Gateway Service started`);
   console.log(`🚀 Service: ${SERVICE_NAME}`);
   console.log(`🔗 Port: ${PORT}`);
-  console.log(`🎯 Core Pod: ${CORE_POD_URL}`);
-  console.log(`💼 Business Pod: ${BUSINESS_POD_URL}`);
+  console.log(`🎯 Auth: ${AUTH_SERVICE_URL}`);
+  console.log(`👤 User: ${USER_SERVICE_URL}`);
+  console.log(`✈️  Voyage: ${VOYAGE_SERVICE_URL}`);
+  console.log(`🤖 AI: ${AI_SERVICE_URL}`);
+  console.log(`💳 Payment: ${PAYMENT_SERVICE_URL}`);
+  console.log(`🌐 Panorama: ${PANORAMA_SERVICE_URL}`);
   console.log(`🕐 Started at: ${new Date().toISOString()}`);
   console.log(`📋 Health check: http://localhost:${PORT}/health`);
 });
