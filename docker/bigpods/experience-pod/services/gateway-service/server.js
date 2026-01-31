@@ -62,7 +62,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: SERVICE_NAME,
-    version: '1.3.0',
+    version: '1.4.0',
     timestamp: new Date().toISOString(),
     proxies: {
       auth: AUTH_SERVICE_URL,
@@ -79,18 +79,18 @@ app.get('/health', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     service: SERVICE_NAME,
-    version: '1.3.0',
+    version: '1.4.0',
     description: 'DreamScape API Gateway - Experience Pod',
     endpoints: {
       health: '/health',
       status: '/status',
       metrics: '/metrics',
       api: {
-        auth: ['/api/auth/*', '/api/v1/auth/*'],
-        users: ['/api/users/*', '/api/v1/users/*'],
-        voyages: ['/api/voyages/*', '/api/v1/voyages/*'],
-        ai: ['/api/ai/*', '/api/v1/ai/*'],
-        payment: ['/api/payment/*', '/api/v1/payment/*'],
+        auth: '/api/v1/auth/*',
+        users: '/api/v1/users/*',
+        voyages: '/api/v1/voyages/*',
+        ai: '/api/v1/ai/*',
+        payment: '/api/v1/payment/*',
         vr: '/api/vr/*'
       }
     },
@@ -100,14 +100,11 @@ app.get('/api', (req, res) => {
 
 // Core Pod proxy (Auth, Users)
 // Support both /api/auth and /api/v1/auth paths
-app.use(['/api/auth', '/api/v1/auth'], createProxyMiddleware({
-  target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
+app.use(['/api/v1/auth'], createProxyMiddleware({
+  target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: {
-    '^/api/v1/auth': '/api/v1/auth',
-    '^/api/auth': '/api/v1/auth'
-  },
   timeout: 30000,
+  logLevel: 'debug',
   onError: (err, req, res) => {
     console.error('Auth Service proxy error:', err.message);
     res.status(503).json({
@@ -118,14 +115,11 @@ app.use(['/api/auth', '/api/v1/auth'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/users', '/api/v1/users'], createProxyMiddleware({
-  target: process.env.USER_SERVICE_URL || 'http://user-service:3002',
+app.use(['/api/v1/users'], createProxyMiddleware({
+  target: USER_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: {
-    '^/api/v1/users': '/api/v1/users',
-    '^/api/users': '/api/v1/users'
-  },
   timeout: 30000,
+  logLevel: 'debug',
   onError: (err, req, res) => {
     console.error('User Service proxy error:', err.message);
     res.status(503).json({
@@ -137,14 +131,11 @@ app.use(['/api/users', '/api/v1/users'], createProxyMiddleware({
 }));
 
 // Business Pod proxy (Voyages, AI, Payment)
-app.use(['/api/voyages', '/api/v1/voyages'], createProxyMiddleware({
-  target: process.env.VOYAGE_SERVICE_URL || 'http://voyage-service:3003',
+app.use(['/api/v1/voyages'], createProxyMiddleware({
+  target: VOYAGE_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: {
-    '^/api/v1/voyages': '/api/v1/voyages',
-    '^/api/voyages': '/api/v1/voyages'
-  },
   timeout: 30000,
+  logLevel: 'debug',
   onError: (err, req, res) => {
     console.error('Voyage Service proxy error:', err.message);
     res.status(503).json({
@@ -155,14 +146,11 @@ app.use(['/api/voyages', '/api/v1/voyages'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/ai', '/api/v1/ai'], createProxyMiddleware({
-  target: process.env.AI_SERVICE_URL || 'http://ai-service:3004',
+app.use(['/api/v1/ai'], createProxyMiddleware({
+  target: AI_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: {
-    '^/api/v1/ai': '/api/v1/ai',
-    '^/api/ai': '/api/v1/ai'
-  },
   timeout: 60000, // AI requests can take longer
+  logLevel: 'debug',
   onError: (err, req, res) => {
     console.error('AI Service proxy error:', err.message);
     res.status(503).json({
@@ -173,14 +161,11 @@ app.use(['/api/ai', '/api/v1/ai'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/payment', '/api/v1/payment'], createProxyMiddleware({
-  target: process.env.PAYMENT_SERVICE_URL || 'http://payment-service:3005',
+app.use(['/api/v1/payment'], createProxyMiddleware({
+  target: PAYMENT_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: {
-    '^/api/v1/payment': '/api/v1/payment',
-    '^/api/payment': '/api/v1/payment'
-  },
   timeout: 30000,
+  logLevel: 'debug',
   onError: (err, req, res) => {
     console.error('Payment Service proxy error:', err.message);
     res.status(503).json({
