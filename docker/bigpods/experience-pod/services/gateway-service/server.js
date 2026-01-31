@@ -61,23 +61,31 @@ const apiProxy = createProxyMiddleware({
   filter: (pathname) => pathname.startsWith('/api'),
   router: (req) => {
     // Full path is preserved when mounted on /
-    if (req.path.startsWith('/api/v1/auth')) return AUTH_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/users')) return USER_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/voyages')) return VOYAGE_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/ai')) return AI_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/payment')) return PAYMENT_SERVICE_URL;
+    // Support both /api/v1/* and /api/* formats
+    if (req.path.startsWith('/api/v1/auth') || req.path.startsWith('/api/auth')) return AUTH_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users')) return USER_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
+        req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
+        req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts')) return VOYAGE_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') ||
+        req.path.startsWith('/api/recommendations')) return AI_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) return PAYMENT_SERVICE_URL;
     if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
+    if (req.path.startsWith('/api/analytics')) return USER_SERVICE_URL; // Analytics go to user service
     return AUTH_SERVICE_URL; // fallback
   },
   changeOrigin: true,
   timeout: 30000,
   onProxyReq: (proxyReq, req, res) => {
-    const target = req.path.startsWith('/api/v1/auth') ? AUTH_SERVICE_URL :
-                   req.path.startsWith('/api/v1/users') ? USER_SERVICE_URL :
-                   req.path.startsWith('/api/v1/voyages') ? VOYAGE_SERVICE_URL :
-                   req.path.startsWith('/api/v1/ai') ? AI_SERVICE_URL :
-                   req.path.startsWith('/api/v1/payment') ? PAYMENT_SERVICE_URL :
-                   PANORAMA_SERVICE_URL;
+    let target = AUTH_SERVICE_URL;
+    if (req.path.startsWith('/api/v1/auth') || req.path.startsWith('/api/auth')) target = AUTH_SERVICE_URL;
+    else if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users') || req.path.startsWith('/api/analytics')) target = USER_SERVICE_URL;
+    else if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
+             req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
+             req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts')) target = VOYAGE_SERVICE_URL;
+    else if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') || req.path.startsWith('/api/recommendations')) target = AI_SERVICE_URL;
+    else if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) target = PAYMENT_SERVICE_URL;
+    else if (req.path.startsWith('/api/vr')) target = PANORAMA_SERVICE_URL;
     console.log(`[HPM] Proxying ${req.method} ${req.originalUrl} -> ${target}${proxyReq.path}`);
   },
   onProxyRes: (proxyRes, req, res) => {
