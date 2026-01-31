@@ -99,24 +99,26 @@ app.get('/api', (req, res) => {
 });
 
 // API Proxy - use router to dynamically select target
-// Mount on root and use filter to match paths
+// Mount on /api - Express will strip /api from req.path
 const apiProxy = createProxyMiddleware({
   router: (req) => {
-    if (req.path.startsWith('/api/v1/auth')) return AUTH_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/users')) return USER_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/voyages')) return VOYAGE_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/ai')) return AI_SERVICE_URL;
-    if (req.path.startsWith('/api/v1/payment')) return PAYMENT_SERVICE_URL;
-    if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
+    // req.path has /api stripped, so check paths without /api prefix
+    if (req.path.startsWith('/v1/auth')) return AUTH_SERVICE_URL;
+    if (req.path.startsWith('/v1/users')) return USER_SERVICE_URL;
+    if (req.path.startsWith('/v1/voyages')) return VOYAGE_SERVICE_URL;
+    if (req.path.startsWith('/v1/ai')) return AI_SERVICE_URL;
+    if (req.path.startsWith('/v1/payment')) return PAYMENT_SERVICE_URL;
+    if (req.path.startsWith('/vr')) return PANORAMA_SERVICE_URL;
     return AUTH_SERVICE_URL; // fallback
   },
   changeOrigin: true,
   timeout: 30000,
+  pathRewrite: (path) => '/api' + path, // Add /api back for backend services
   onProxyReq: (proxyReq, req, res) => {
-    console.log(`[HPM] Proxying ${req.method} ${req.path} -> ${proxyReq.path}`);
+    console.log(`[HPM] Proxying ${req.method} ${req.originalUrl} -> ${proxyReq.path}`);
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.path}`);
+    console.log(`[HPM] Response ${proxyRes.statusCode} for ${req.method} ${req.originalUrl}`);
   },
   onError: (err, req, res) => {
     console.error('[HPM] Proxy error:', err.message);
