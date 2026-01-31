@@ -105,7 +105,12 @@ app.use('/api/v1/auth', createProxyMiddleware({
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
-  pathRewrite: (path) => '/api/v1/auth' + path,
+  pathRewrite: (path) => {
+    // If path already starts with /api, don't add it again
+    if (path.startsWith('/api')) return path;
+    // Otherwise add the mount path back
+    return '/api/v1/auth' + path;
+  },
   onProxyReq: (proxyReq, req, res) => {
     console.log(`[HPM] Auth: ${req.method} ${req.originalUrl} -> ${AUTH_SERVICE_URL}${proxyReq.path}`);
   },
@@ -125,7 +130,7 @@ app.use('/api/v1/users', createProxyMiddleware({
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
-  pathRewrite: (path) => '/api/v1/users' + path,
+  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/users' + path,
   onError: (err, req, res) => {
     console.error('[HPM] User error:', err.message);
     if (!res.headersSent) {
@@ -139,7 +144,7 @@ app.use('/api/v1/voyages', createProxyMiddleware({
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
-  pathRewrite: (path) => '/api/v1/voyages' + path,
+  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/voyages' + path,
   onError: (err, req, res) => {
     console.error('[HPM] Voyage error:', err.message);
     if (!res.headersSent) {
@@ -153,7 +158,7 @@ app.use('/api/v1/ai', createProxyMiddleware({
   changeOrigin: true,
   timeout: 60000,
   proxyTimeout: 60000,
-  pathRewrite: (path) => '/api/v1/ai' + path,
+  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/ai' + path,
   onError: (err, req, res) => {
     console.error('[HPM] AI error:', err.message);
     if (!res.headersSent) {
@@ -167,7 +172,7 @@ app.use('/api/v1/payment', createProxyMiddleware({
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
-  pathRewrite: (path) => '/api/v1/payment' + path,
+  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/v1/payment' + path,
   onError: (err, req, res) => {
     console.error('[HPM] Payment error:', err.message);
     if (!res.headersSent) {
@@ -181,7 +186,7 @@ app.use('/api/vr', createProxyMiddleware({
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
-  pathRewrite: (path) => '/api/vr' + path,
+  pathRewrite: (path) => path.startsWith('/api') ? path : '/api/vr' + path,
   onError: (err, req, res) => {
     console.error('[HPM] VR error:', err.message);
     if (!res.headersSent) {
