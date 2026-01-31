@@ -99,9 +99,14 @@ app.get('/api', (req, res) => {
 });
 
 // Core Pod proxy (Auth, Users)
-app.use(['/api/v1/auth'], createProxyMiddleware({
+app.use('/api/v1/auth', createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: {
+    '^/api/v1/auth': '/api/v1/auth' // Preserve the path
+  },
   onProxyReq: (proxyReq, req, res) => {
     console.log(`[HPM] Proxying ${req.method} ${req.url} -> ${AUTH_SERVICE_URL}${req.url}`);
   },
@@ -118,12 +123,22 @@ app.use(['/api/v1/auth'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/v1/users'], createProxyMiddleware({
+app.use('/api/v1/users', createProxyMiddleware({
   target: USER_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-    onError: (err, req, res) => {
-    console.error('User Service proxy error:', err.message);
+  proxyTimeout: 30000,
+  pathRewrite: {
+    '^/api/v1/users': '/api/v1/users'
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`[HPM] Proxying ${req.method} ${req.url} -> ${USER_SERVICE_URL}${req.url}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`[HPM] Response ${proxyRes.statusCode} from ${USER_SERVICE_URL}${req.url}`);
+  },
+  onError: (err, req, res) => {
+    console.error('[HPM] User Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'User Service unavailable',
@@ -133,12 +148,16 @@ app.use(['/api/v1/users'], createProxyMiddleware({
 }));
 
 // Business Pod proxy (Voyages, AI, Payment)
-app.use(['/api/v1/voyages'], createProxyMiddleware({
+app.use('/api/v1/voyages', createProxyMiddleware({
   target: VOYAGE_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-    onError: (err, req, res) => {
-    console.error('Voyage Service proxy error:', err.message);
+  proxyTimeout: 30000,
+  pathRewrite: {
+    '^/api/v1/voyages': '/api/v1/voyages'
+  },
+  onError: (err, req, res) => {
+    console.error('[HPM] Voyage Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'Voyage Service unavailable',
@@ -147,12 +166,16 @@ app.use(['/api/v1/voyages'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/v1/ai'], createProxyMiddleware({
+app.use('/api/v1/ai', createProxyMiddleware({
   target: AI_SERVICE_URL,
   changeOrigin: true,
   timeout: 60000, // AI requests can take longer
-    onError: (err, req, res) => {
-    console.error('AI Service proxy error:', err.message);
+  proxyTimeout: 60000,
+  pathRewrite: {
+    '^/api/v1/ai': '/api/v1/ai'
+  },
+  onError: (err, req, res) => {
+    console.error('[HPM] AI Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'AI Service unavailable',
@@ -161,12 +184,16 @@ app.use(['/api/v1/ai'], createProxyMiddleware({
   }
 }));
 
-app.use(['/api/v1/payment'], createProxyMiddleware({
+app.use('/api/v1/payment', createProxyMiddleware({
   target: PAYMENT_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
-    onError: (err, req, res) => {
-    console.error('Payment Service proxy error:', err.message);
+  proxyTimeout: 30000,
+  pathRewrite: {
+    '^/api/v1/payment': '/api/v1/payment'
+  },
+  onError: (err, req, res) => {
+    console.error('[HPM] Payment Service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'Payment Service unavailable',
@@ -180,8 +207,12 @@ app.use('/api/vr', createProxyMiddleware({
   target: PANORAMA_SERVICE_URL,
   changeOrigin: true,
   timeout: 30000,
+  proxyTimeout: 30000,
+  pathRewrite: {
+    '^/api/vr': '/api/vr'
+  },
   onError: (err, req, res) => {
-    console.error('Panorama service proxy error:', err.message);
+    console.error('[HPM] Panorama service proxy error:', err.message);
     res.status(503).json({
       success: false,
       error: 'VR Service unavailable',
