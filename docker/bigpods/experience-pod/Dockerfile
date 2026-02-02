@@ -16,7 +16,7 @@ WORKDIR /build/web
 
 # Copy .env.staging and rename to .env for Vite to use during build
 # This injects the staging URLs (79.72.27.180:30318) into the frontend bundle
-COPY ../../../dreamscape-frontend/web-client/.env.staging ./.env
+COPY .env.staging ./.env
 
 # For testing - create dummy package.json if not exists
 RUN echo '{"name":"web-client","version":"1.0.0","scripts":{"build":"echo Built"}}' > package.json
