@@ -49,8 +49,8 @@ services:
   # Experience Pod - Frontend + VR + Gateway container
   experience-pod:
     build:
-      context: ./bigpods/experience-pod
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: dreamscape-infra/docker/bigpods/experience-pod/Dockerfile
       args:
         BUILD_MODE: ${BUILD_MODE:-production}
     container_name: dreamscape-experience-pod

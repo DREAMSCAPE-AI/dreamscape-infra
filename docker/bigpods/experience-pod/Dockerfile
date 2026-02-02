@@ -14,13 +14,13 @@ RUN apk add --no-cache git python3 make g++ curl
 # Set working directory for web client build
 WORKDIR /build/web
 
-# Expect dreamscape-frontend repo to be cloned by CI/CD at ../../../dreamscape-frontend
-# Copy entire web-client directory
-COPY ../../../dreamscape-frontend/web-client/ ./
+# Expect dreamscape-frontend repo to be cloned by CI/CD at same level as dreamscape-infra
+# Copy entire web-client directory (context is now ../..)
+COPY dreamscape-frontend/web-client/ ./
 
 # Copy .env.staging and rename to .env for Vite to use during build
 # This injects the staging URLs (79.72.27.180:30318) into the frontend bundle
-COPY .env.staging ./.env
+COPY dreamscape-infra/docker/bigpods/experience-pod/.env.staging ./.env
 
 # Install dependencies
 RUN npm ci --silent && npm cache clean --force
@@ -35,8 +35,8 @@ FROM node:20-alpine AS gateway-builder
 
 WORKDIR /build/gateway
 
-# Copy gateway service code (already in this repo)
-COPY services/gateway-service/ ./
+# Copy gateway service code (already in this repo, context is ../..)
+COPY dreamscape-infra/docker/bigpods/experience-pod/services/gateway-service/ ./
 
 # Install dependencies
 RUN npm ci --only=production --silent && npm cache clean --force
