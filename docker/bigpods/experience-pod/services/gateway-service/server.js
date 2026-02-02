@@ -66,7 +66,8 @@ const apiProxy = createProxyMiddleware({
     if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users')) return USER_SERVICE_URL;
     if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
         req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
-        req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts')) return VOYAGE_SERVICE_URL;
+        req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts') ||
+        req.path.startsWith('/api/cart') || req.path.startsWith('/api/locations')) return VOYAGE_SERVICE_URL;
     if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') ||
         req.path.startsWith('/api/recommendations')) return AI_SERVICE_URL;
     if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) return PAYMENT_SERVICE_URL;
@@ -82,7 +83,8 @@ const apiProxy = createProxyMiddleware({
     else if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users') || req.path.startsWith('/api/analytics')) target = USER_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
              req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
-             req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts')) target = VOYAGE_SERVICE_URL;
+             req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts') ||
+             req.path.startsWith('/api/cart') || req.path.startsWith('/api/locations')) target = VOYAGE_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') || req.path.startsWith('/api/recommendations')) target = AI_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) target = PAYMENT_SERVICE_URL;
     else if (req.path.startsWith('/api/vr')) target = PANORAMA_SERVICE_URL;
