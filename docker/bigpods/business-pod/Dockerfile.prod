@@ -12,8 +12,8 @@ WORKDIR /app
 # Copy all shared modules first
 COPY dreamscape-services/shared ./shared
 
-# Install shared Kafka dependencies
-RUN cd shared/kafka && npm install
+# Install and build shared Kafka package
+RUN cd shared/kafka && npm install && npm run build
 
 # Shared DB client: install deps + Prisma generate (migrations run at runtime)
 COPY dreamscape-services/db ./db
