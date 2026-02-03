@@ -81,9 +81,6 @@ const apiProxy = createProxyMiddleware({
   },
   changeOrigin: true,
   timeout: 30000,
-  pathRewrite: {
-    '^/api': '', // Remove /api prefix when forwarding to backend services
-  },
   onProxyReq: (proxyReq, req, res) => {
     let target = AUTH_SERVICE_URL;
     if (req.path.startsWith('/api/v1/auth') || req.path.startsWith('/api/auth')) target = AUTH_SERVICE_URL;
