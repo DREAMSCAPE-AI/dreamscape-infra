@@ -95,6 +95,13 @@ COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/dist /app/voyage/di
 COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/node_modules /app/voyage/node_modules
 COPY --from=voyage-builder --chown=nodejs:nodejs /app/voyage/package.json /app/voyage/
 
+# Create symlinks for @dreamscape/* packages for voyage service
+RUN mkdir -p /app/voyage/node_modules/@dreamscape && \
+    rm -f /app/voyage/node_modules/@dreamscape/db && \
+    ln -sf ../../db /app/voyage/node_modules/@dreamscape/db && \
+    rm -f /app/voyage/node_modules/@dreamscape/kafka && \
+    ln -sf ../../shared/kafka /app/voyage/node_modules/@dreamscape/kafka
+
 # AI Service stub (Python - always present)
 RUN printf '%s\n' \
     "#!/usr/bin/env python3" \
