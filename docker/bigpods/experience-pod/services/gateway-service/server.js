@@ -55,6 +55,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Normalize double /api prefix (e.g. /api/api/v1/itineraries → /api/v1/itineraries)
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api/api/')) {
+    req.url = req.url.replace('/api/api/', '/api/');
+  }
+  next();
+});
+
 // API Proxy - MUST be BEFORE body parsers to access raw body stream
 // Mount on root / to preserve full paths
 const apiProxy = createProxyMiddleware({
@@ -66,11 +74,12 @@ const apiProxy = createProxyMiddleware({
     if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users') ||
         req.path.startsWith('/api/onboarding')) return USER_SERVICE_URL;
     if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
+        req.path.startsWith('/api/v1/itineraries') || req.path.startsWith('/api/itineraries') ||
         req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
         req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts') ||
         req.path.startsWith('/api/cart') || req.path.startsWith('/api/locations') ||
         req.path.startsWith('/api/activities') || req.path.startsWith('/api/hotels') ||
-        req.path.startsWith('/api/transfers') || req.path.startsWith('/api/itineraries') ||
+        req.path.startsWith('/api/transfers') ||
         req.path.startsWith('/api/airlines') || req.path.startsWith('/api/airports')) return VOYAGE_SERVICE_URL;
     if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') ||
         req.path.startsWith('/api/recommendations')) return AI_SERVICE_URL;
@@ -87,11 +96,12 @@ const apiProxy = createProxyMiddleware({
     else if (req.path.startsWith('/api/v1/users') || req.path.startsWith('/api/users') ||
              req.path.startsWith('/api/analytics') || req.path.startsWith('/api/onboarding')) target = USER_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/voyages') || req.path.startsWith('/api/voyages') ||
+             req.path.startsWith('/api/v1/itineraries') || req.path.startsWith('/api/itineraries') ||
              req.path.startsWith('/api/bookings') || req.path.startsWith('/api/flights') ||
              req.path.startsWith('/api/search-history') || req.path.startsWith('/api/price-alerts') ||
              req.path.startsWith('/api/cart') || req.path.startsWith('/api/locations') ||
              req.path.startsWith('/api/activities') || req.path.startsWith('/api/hotels') ||
-             req.path.startsWith('/api/transfers') || req.path.startsWith('/api/itineraries') ||
+             req.path.startsWith('/api/transfers') ||
              req.path.startsWith('/api/airlines') || req.path.startsWith('/api/airports')) target = VOYAGE_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') || req.path.startsWith('/api/recommendations')) target = AI_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) target = PAYMENT_SERVICE_URL;
