@@ -508,9 +508,18 @@ curl -s http://localhost:3002/health | jq '.'
 - **⚡ Performance** : ✅ -90% latence, -30% RAM
 - **🚀 Scripts automation** : ✅ `launch-core-pod.sh`
 
+### ✅ **BUSINESS POD - OPÉRATIONNEL**
+- **🏗️ Dockerfile multi-stage** : ✅ Implémenté (`Dockerfile.prod`)
+- **🐍 Supervisor orchestration** : ✅ Voyage + AI (stub) + Payment (stub)
+- **🌐 NGINX reverse proxy** : ✅ Communication localhost optimisée
+- **🗄️ Prisma client** : ✅ Symlink `.prisma` vers `/app/db` (client partagé)
+- **📦 Bootstrap K8s** : ✅ `command` startup avec symlinks + `prisma generate`
+
+> **Note Prisma** : Le Business Pod utilise un schéma Prisma partagé (`/app/db/prisma/schema.prisma`). Le client généré se trouve dans `/app/db/node_modules/.prisma/client/`. Un symlink `/app/voyage/node_modules/.prisma → /app/db/node_modules/.prisma` est requis pour que `voyage-service` résout `@prisma/client` correctement. Ce symlink est créé au build (Dockerfile.prod) et au démarrage (command du déploiement K8s).
+
 ### 🔄 **PROCHAINS BIG PODS**
-- **🎮 Experience Pod** : Voyage + AI + Panorama Services
-- **💰 Commerce Pod** : Payment + Analytics Services  
+- **🎮 Experience Pod** : Gateway + Panorama + Web-Client Services
+- **💰 Commerce Pod** : Payment + Analytics Services
 
 ## 🤝 Contributing Big Pods
 

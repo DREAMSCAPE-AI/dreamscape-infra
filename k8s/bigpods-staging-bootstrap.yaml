@@ -243,6 +243,23 @@ spec:
       containers:
         - name: voyage-service
           image: ghcr.io/dreamscape-ai/business-pod:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo '🔧 Fixing symlinks before startup...'
+              rm -f /app/voyage/node_modules/@dreamscape/kafka
+              ln -sf ../../../shared/kafka /app/voyage/node_modules/@dreamscape/kafka
+              rm -f /app/voyage/node_modules/@dreamscape/db
+              ln -sf ../../../db /app/voyage/node_modules/@dreamscape/db
+              rm -rf /app/voyage/node_modules/.prisma
+              ln -sf /app/db/node_modules/.prisma /app/voyage/node_modules/.prisma
+              echo '✅ Symlinks fixed!'
+              echo '🔧 Generating Prisma client...'
+              cd /app/voyage && npx prisma generate --schema=/app/db/prisma/schema.prisma
+              echo '✅ Prisma client generated!'
+              echo '🚀 Starting services...'
+              exec /usr/bin/dumb-init /usr/local/bin/entrypoint.sh supervisord -c /etc/supervisor/conf.d/supervisord.conf
           ports:
             - containerPort: 3003
           env:
