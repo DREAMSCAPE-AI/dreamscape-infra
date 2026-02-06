@@ -21,6 +21,9 @@ RUN npm install --ignore-scripts && npm cache clean --force
 
 COPY dreamscape-frontend/web-client ./
 
+# Inject production env variables into the Vite build (same pattern as staging)
+COPY dreamscape-infra/docker/bigpods/experience-pod/.env.prod .env.production
+
 ENV NODE_ENV=production
 
 RUN npm run build -- --mode ${BUILD_MODE}
