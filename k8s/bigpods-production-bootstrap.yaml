@@ -134,9 +134,9 @@ spec:
             - name: CORS_ORIGIN
               value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -206,9 +206,9 @@ spec:
             - name: CORS_ORIGIN
               value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -298,9 +298,9 @@ spec:
             - name: CORS_ORIGIN
               value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -445,9 +445,9 @@ spec:
             - name: CORS_ORIGIN
               value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
