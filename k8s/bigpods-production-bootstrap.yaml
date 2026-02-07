@@ -598,6 +598,13 @@ spec:
   rules:
     - http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: dreamscape-gateway-service
+                port:
+                  number: 3000
           - path: /
             pathType: Prefix
             backend:
