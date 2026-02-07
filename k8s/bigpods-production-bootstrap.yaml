@@ -97,7 +97,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:production
           ports:
             - containerPort: 3001
           env:
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:production
           ports:
             - containerPort: 3002
           env:
@@ -242,7 +242,7 @@ spec:
     spec:
       containers:
         - name: voyage-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
           command:
             - /bin/sh
             - -c
@@ -333,7 +333,7 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
           command:
             - /bin/sh
             - -c
@@ -414,7 +414,7 @@ spec:
     spec:
       containers:
         - name: ai-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
           ports:
             - containerPort: 3004
           env:
@@ -481,7 +481,7 @@ spec:
     spec:
       containers:
         - name: gateway-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 3000
           env:
@@ -529,7 +529,7 @@ spec:
     spec:
       containers:
         - name: panorama-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 3006
           env:
@@ -567,7 +567,7 @@ spec:
     spec:
       containers:
         - name: web-client-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 80
           env:
