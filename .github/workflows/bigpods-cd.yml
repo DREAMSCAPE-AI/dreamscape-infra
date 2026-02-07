@@ -219,6 +219,7 @@ jobs:
           ./build-bigpods.sh \
             -v "$version" \
             --push \
+            --no-cache \
             --verbose \
             ${{ matrix.pod }}
 
