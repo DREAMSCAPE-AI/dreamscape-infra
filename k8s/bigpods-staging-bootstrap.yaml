@@ -383,11 +383,11 @@ spec:
             - name: FRONTEND_URL
               value: http://dreamscape-gateway-service:3000
             - name: STRIPE_SECRET_KEY
-              value: sk_test_dummy_secret_key
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
-              value: pk_test_dummy_publishable_key
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
             - name: STRIPE_WEBHOOK_SECRET
-              value: whsec_dummy_webhook_secret
+              value: whsec_your_webhook_secret_here
 ---
 apiVersion: v1
 kind: Service
