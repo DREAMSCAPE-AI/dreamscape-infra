@@ -306,6 +306,8 @@ spec:
               value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
 ---
 apiVersion: v1
 kind: Service
