@@ -70,6 +70,9 @@ export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
 export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY}"
 export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
 export FRONTEND_URL="${FRONTEND_URL}"
+export AMADEUS_API_KEY="${AMADEUS_API_KEY}"
+export AMADEUS_API_SECRET="${AMADEUS_API_SECRET}"
+export AMADEUS_BASE_URL="${AMADEUS_BASE_URL:-https://test.api.amadeus.com}"
 
 # Validate Supervisor configuration
 echo -e "${YELLOW}🔧 Validating Supervisor configuration...${NC}"
