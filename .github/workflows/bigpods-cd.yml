@@ -348,36 +348,41 @@ jobs:
       - name: 📦 Bootstrap staging k8s resources
         run: |
           kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
+          echo "✅ Staging deployment completed - kubectl apply performs rolling update automatically"
 
-      - name: 🚀 Deploy to Staging
-        working-directory: scripts/bigpods
-        timeout-minutes: 15
-        run: |
-          echo "🚀 Deploying to staging environment..."
-
-          version="${{ needs.pre-deployment.outputs.deployment-version }}"
-          strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
-
-          # Configure staging deployment
-          case "$strategy" in
-            "rolling")
-              deployment_args="--rolling"
-              ;;
-            "blue-green")
-              deployment_args="--blue-green"
-              ;;
-            "canary")
-              deployment_args="--canary --canary-percent 20"
-              ;;
-          esac
-
-          # Execute deployment
-          ./deploy-bigpods.sh \
-            --env staging \
-            --version "$version" \
-            $deployment_args \
-            --force \
-            --verbose
+      # NOTE: deploy-bigpods.sh script commented out - kubectl apply above already performs rolling updates
+      # The script expected blue-green deployment names but manifests use direct service names
+      # kubectl apply is simpler, more reliable, and performs native Kubernetes rolling updates
+      #
+      # - name: 🚀 Deploy to Staging
+      #   working-directory: scripts/bigpods
+      #   timeout-minutes: 15
+      #   run: |
+      #     echo "🚀 Deploying to staging environment..."
+      #
+      #     version="${{ needs.pre-deployment.outputs.deployment-version }}"
+      #     strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
+      #
+      #     # Configure staging deployment
+      #     case "$strategy" in
+      #       "rolling")
+      #         deployment_args="--rolling"
+      #         ;;
+      #       "blue-green")
+      #         deployment_args="--blue-green"
+      #         ;;
+      #       "canary")
+      #         deployment_args="--canary --canary-percent 20"
+      #         ;;
+      #     esac
+      #
+      #     # Execute deployment
+      #     ./deploy-bigpods.sh \
+      #       --env staging \
+      #       --version "$version" \
+      #       $deployment_args \
+      #       --force \
+      #       --verbose
 
       - name: ✅ Deployment Complete
         run: |
@@ -534,42 +539,43 @@ jobs:
       - name: 📦 Bootstrap production k8s resources
         run: |
           kubectl apply -f k8s/bigpods-production-bootstrap.yaml
+          echo "✅ Production deployment completed - kubectl apply performs rolling update automatically"
 
-      - name: ✅ Pre-production Ready
-        run: |
-          echo "✅ Ready for production deployment"
-
-      - name: 🚀 Deploy to Production
-        working-directory: scripts/bigpods
-        timeout-minutes: 20
-        run: |
-          echo "🚀 Deploying to production environment..."
-
-          version="${{ needs.pre-deployment.outputs.deployment-version }}"
-          strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
-
-          # Configure production deployment
-          case "$strategy" in
-            "rolling")
-              deployment_args="--rolling"
-              ;;
-            "blue-green")
-              deployment_args="--blue-green"
-              ;;
-            "canary")
-              deployment_args="--canary --canary-percent 10"
-              ;;
-          esac
-
-          # Execute deployment with notifications
-          ./deploy-bigpods.sh \
-            --env production \
-            --version "$version" \
-            $deployment_args \
-            --notify \
-            --slack-webhook "${{ secrets.SLACK_WEBHOOK_URL }}" \
-            --force \
-            --verbose
+      # NOTE: deploy-bigpods.sh script commented out - kubectl apply above already performs rolling updates
+      # The script expected blue-green deployment names but manifests use direct service names
+      # kubectl apply is simpler, more reliable, and performs native Kubernetes rolling updates
+      #
+      # - name: 🚀 Deploy to Production
+      #   working-directory: scripts/bigpods
+      #   timeout-minutes: 20
+      #   run: |
+      #     echo "🚀 Deploying to production environment..."
+      #
+      #     version="${{ needs.pre-deployment.outputs.deployment-version }}"
+      #     strategy="${{ needs.pre-deployment.outputs.deployment-strategy }}"
+      #
+      #     # Configure production deployment
+      #     case "$strategy" in
+      #       "rolling")
+      #         deployment_args="--rolling"
+      #         ;;
+      #       "blue-green")
+      #         deployment_args="--blue-green"
+      #         ;;
+      #       "canary")
+      #         deployment_args="--canary --canary-percent 10"
+      #         ;;
+      #     esac
+      #
+      #     # Execute deployment with notifications
+      #     ./deploy-bigpods.sh \
+      #       --env production \
+      #       --version "$version" \
+      #       $deployment_args \
+      #       --notify \
+      #       --slack-webhook "${{ secrets.SLACK_WEBHOOK_URL }}" \
+      #       --force \
+      #       --verbose
 
       - name: ✅ Production Deployment Complete
         run: |
