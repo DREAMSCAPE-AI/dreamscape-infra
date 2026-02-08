@@ -392,6 +392,14 @@ spec:
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
               value: http://dreamscape-gateway-service:3000
+            - name: AMADEUS_API_KEY
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
+            - name: AMADEUS_API_SECRET
+              value: wKeJSHOvcfeiZOw3
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
             - name: STRIPE_SECRET_KEY
               value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
