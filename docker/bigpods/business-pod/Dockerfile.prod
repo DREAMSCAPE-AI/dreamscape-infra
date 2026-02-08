@@ -76,10 +76,7 @@ RUN npm install
 # Copy payment source code
 COPY dreamscape-services/payment/src ./src
 
-# Generate Prisma client
-RUN npx prisma generate --schema $PRISMA_SCHEMA_PATH
-
-# Build TypeScript
+# Build TypeScript (Prisma client will be available via symlink at runtime)
 RUN npm run build
 
 # Stage 3: Final Multi-Service Runtime
