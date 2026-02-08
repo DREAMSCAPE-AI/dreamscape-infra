@@ -164,9 +164,9 @@ COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/package.json /app
 # Create symlinks for @dreamscape/* packages for payment service
 RUN mkdir -p /app/payment/node_modules/@dreamscape && \
     rm -f /app/payment/node_modules/@dreamscape/db && \
-    ln -sf ../../db /app/payment/node_modules/@dreamscape/db && \
+    ln -sf ../../../db /app/payment/node_modules/@dreamscape/db && \
     rm -f /app/payment/node_modules/@dreamscape/kafka && \
-    ln -sf ../../shared/kafka /app/payment/node_modules/@dreamscape/kafka && \
+    ln -sf ../../../shared/kafka /app/payment/node_modules/@dreamscape/kafka && \
     rm -rf /app/payment/node_modules/.prisma && \
     ln -sf /app/db/node_modules/.prisma /app/payment/node_modules/.prisma
 
