@@ -102,7 +102,7 @@ spec:
             - containerPort: 3001
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3001"
             - name: DATABASE_URL
@@ -174,7 +174,7 @@ spec:
             - containerPort: 3002
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3002"
             - name: DATABASE_URL
@@ -264,7 +264,7 @@ spec:
             - containerPort: 3003
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3003"
             - name: DATABASE_URL
@@ -305,6 +305,14 @@ spec:
               value: https://test.api.amadeus.com
             - name: PAYMENT_SERVICE_URL
               value: http://dreamscape-payment-service:3005
+            - name: STRIPE_SECRET_KEY
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
+            - name: STRIPE_PUBLISHABLE_KEY
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
+            - name: STRIPE_WEBHOOK_SECRET
+              value: whsec_your_webhook_secret_here
+            - name: FRONTEND_URL
+              value: http://84.235.237.183
 ---
 apiVersion: v1
 kind: Service
@@ -357,7 +365,7 @@ spec:
             - containerPort: 3005
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3005"
             - name: DATABASE_URL
@@ -379,13 +387,21 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
-              value: http://dreamscape-gateway-service:3000
+              value: http://84.235.237.183
             - name: STRIPE_SECRET_KEY
-              value: sk_test_dummy_secret_key
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
-              value: pk_test_dummy_publishable_key
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
             - name: STRIPE_WEBHOOK_SECRET
-              value: whsec_dummy_webhook_secret
+              value: whsec_your_webhook_secret_here
+            - name: AMADEUS_API_KEY
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
+            - name: AMADEUS_API_SECRET
+              value: wKeJSHOvcfeiZOw3
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
 ---
 apiVersion: v1
 kind: Service
@@ -421,7 +437,7 @@ spec:
             - containerPort: 3004
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3004"
             - name: DATABASE_URL
