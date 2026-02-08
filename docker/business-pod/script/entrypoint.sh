@@ -162,6 +162,17 @@ export PORT_VOYAGE="${PORT_VOYAGE:-3003}"
 export PORT_AI="${PORT_AI:-3004}"
 export PORT_PAYMENT="${PORT_PAYMENT:-3005}"
 
+# Export database and service URLs
+export DATABASE_URL="${DATABASE_URL}"
+export REDIS_URL="${REDIS_URL}"
+export PAYMENT_SERVICE_URL="${PAYMENT_SERVICE_URL:-http://dreamscape-payment-service:3005}"
+
+# Export Stripe configuration
+export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
+export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY}"
+export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
+export FRONTEND_URL="${FRONTEND_URL}"
+
 echo -e "${GREEN}✅ Business Pod initialization completed${NC}"
 echo ""
 echo -e "${BLUE}🎯 Starting services:${NC}"
