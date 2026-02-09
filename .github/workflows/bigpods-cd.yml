@@ -183,6 +183,10 @@ jobs:
             git clone --depth 1 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/DREAMSCAPE-AI/dreamscape-frontend.git ../dreamscape-frontend
           fi
 
+          if [[ ! -d ../dreamscape-frontend ]]; then
+            git clone --depth 1 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/DREAMSCAPE-AI/dreamscape-frontend.git ../dreamscape-frontend
+          fi
+
       - name: Ensure bigpods scripts executable
         run: |
           find scripts/bigpods -name "*.sh" -type f -exec chmod +x {} \;
