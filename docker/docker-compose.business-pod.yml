@@ -69,11 +69,11 @@ services:
       - VOYAGE_SERVICE_PORT=3003
       
       # Ai Service configuration
-      - AI_SERVICE_PORT=3004
+      - AI_SERVICE_PORT=3005
       - AI_API_KEY=your-ai-service-api-key-change-in-production-business-pod
 
       # Payment Service configuration
-      - PAYMENT_SERVICE_PORT=3005
+      - PAYMENT_SERVICE_PORT=3004
       - PAYMENT_PROVIDER_API_KEY=PAYMENT_KEY
 
       # Supervisor configuration
