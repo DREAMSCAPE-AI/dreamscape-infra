@@ -12,10 +12,11 @@ resources:
 - networkpolicy.yaml
 - poddisruptionbudget.yaml
 
-commonLabels:
-  app.kubernetes.io/name: auth-service
-  app.kubernetes.io/component: auth
-  app.kubernetes.io/part-of: dreamscape
+labels:
+- pairs:
+    app.kubernetes.io/name: auth-service
+    app.kubernetes.io/component: auth
+    app.kubernetes.io/part-of: dreamscape
 
 images:
 - name: ghcr.io/dreamscape/auth
