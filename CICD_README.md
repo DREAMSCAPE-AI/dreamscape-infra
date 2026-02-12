@@ -9,7 +9,7 @@ This is the **unified CI/CD pipeline** for DreamScape's multi-repository archite
 ✅ **GitHub Deployments API** - Track deployments natively in GitHub
 ✅ **Jira Integration** - Automatic deployment tracking in Jira issues
 ✅ **Multi-Repository Support** - Coordinates services, frontend, tests, docs
-✅ **Environment Protection** - Approval workflows for staging & production
+✅ **Environment Protection** - Production approvals; staging auto-deploy on `main`
 ✅ **Single Source of Truth** - One unified workflow instead of 5+ fragmented ones
 ✅ **Proper Status Tracking** - Both commit status AND deployment status
 ✅ **Automated Testing** - Integration tests run before deployment
@@ -71,8 +71,8 @@ For each repository, create 3 environments:
 # In GitHub UI: Settings → Environments → New environment
 
 dev        # No restrictions
-staging    # 1 reviewer required
-production # 2 reviewers + 5 min wait
+staging    # Auto deploy on push to main (no approval gate)
+production # Manual promotion only (2 reviewers + 5 min wait)
 ```
 
 ### 2. Add Secrets
@@ -121,7 +121,7 @@ git push origin feature/test-cicd
 |--------|-------------|-------------------|
 | `feature/**`, `dev` | dev | No |
 | `develop` | staging | 1 reviewer |
-| `main` | production | 2 reviewers + 5 min wait |
+| `main` | staging | No (auto deploy on push) |
 
 ## How GitHub Deployments Work
 
@@ -132,8 +132,8 @@ const deployment = await github.rest.repos.createDeployment({
   owner: 'DREAMSCAPE-AI',
   repo: 'dreamscape-services',
   ref: 'main',
-  environment: 'production',
-  description: 'Deploy to production'
+  environment: 'staging',
+  description: 'Deploy to staging'
 });
 ```
 
@@ -153,7 +153,7 @@ await github.rest.repos.createDeploymentStatus({
 await github.rest.repos.createDeploymentStatus({
   deployment_id: deployment.data.id,
   state: 'success',
-  environment_url: 'https://production.dreamscape.ai'
+  environment_url: 'https://staging.dreamscape.ai'
 });
 ```
 
@@ -262,7 +262,7 @@ git commit -m "DR-123: feat(auth): add OAuth2"
 ### 2. Test in dev first
 
 ```bash
-feature/** → dev → develop → staging → main → production
+feature/** → dev → develop → main → staging (auto) → production (manual)
 ```
 
 ### 3. Use semantic commits
