@@ -304,7 +304,7 @@ spec:
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
             - name: PAYMENT_SERVICE_URL
-              value: http://dreamscape-payment-service:3005
+              value: http://dreamscape-payment-service:3004
             - name: STRIPE_SECRET_KEY
               value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
@@ -362,12 +362,12 @@ spec:
               echo '🚀 Starting services...'
               exec /usr/bin/dumb-init /usr/local/bin/entrypoint.sh supervisord -c /etc/supervisor/conf.d/supervisord.conf
           ports:
-            - containerPort: 3005
+            - containerPort: 3004
           env:
             - name: NODE_ENV
               value: production
             - name: PORT
-              value: "3005"
+              value: "3004"
             - name: DATABASE_URL
               value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
             - name: DB_HOST
@@ -401,7 +401,7 @@ spec:
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
             - name: PAYMENT_SERVICE_URL
-              value: http://dreamscape-payment-service:3005
+              value: http://dreamscape-payment-service:3004
 ---
 apiVersion: v1
 kind: Service
@@ -412,8 +412,8 @@ spec:
   selector:
     app: payment-service
   ports:
-    - port: 3005
-      targetPort: 3005
+    - port: 3004
+      targetPort: 3004
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -434,12 +434,12 @@ spec:
         - name: ai-service
           image: ghcr.io/dreamscape-ai/business-pod:production
           ports:
-            - containerPort: 3004
+            - containerPort: 3005
           env:
             - name: NODE_ENV
               value: production
             - name: PORT
-              value: "3004"
+              value: "3005"
             - name: DATABASE_URL
               value: postgresql://dreamscape_user:dreamscape_password@dreamscape-postgres:5432/dreamscape
             - name: DB_HOST
@@ -478,8 +478,8 @@ spec:
   selector:
     app: ai-service
   ports:
-    - port: 3004
-      targetPort: 3004
+    - port: 3005
+      targetPort: 3005
 ---
 # Experience services (gateway + panorama + web-client)
 apiVersion: apps/v1
@@ -510,9 +510,9 @@ spec:
             - name: VOYAGE_SERVICE_URL
               value: http://dreamscape-voyage-service:3003
             - name: AI_SERVICE_URL
-              value: http://dreamscape-ai-service:3004
+              value: http://dreamscape-ai-service:3005
             - name: PAYMENT_SERVICE_URL
-              value: http://dreamscape-payment-service:3005
+              value: http://dreamscape-payment-service:3004
             - name: REDIS_HOST
               value: dreamscape-redis
             - name: REDIS_PORT
