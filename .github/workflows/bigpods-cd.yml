@@ -349,6 +349,23 @@ jobs:
             exit 1
           fi
 
+      - name: 🏷️ Update image tags to version ${{ needs.pre-deployment.outputs.deployment-version }}
+        env:
+          VERSION: ${{ needs.pre-deployment.outputs.deployment-version }}
+        run: |
+          echo "🏷️ Updating image tags from :staging to :${VERSION}..."
+
+          # Update all BigPods image tags in the bootstrap file
+          sed -i "s|ghcr.io/dreamscape-ai/core-pod:staging|ghcr.io/dreamscape-ai/core-pod:${VERSION}|g" k8s/bigpods-staging-bootstrap.yaml
+          sed -i "s|ghcr.io/dreamscape-ai/business-pod:staging|ghcr.io/dreamscape-ai/business-pod:${VERSION}|g" k8s/bigpods-staging-bootstrap.yaml
+          sed -i "s|ghcr.io/dreamscape-ai/experience-pod:staging|ghcr.io/dreamscape-ai/experience-pod:${VERSION}|g" k8s/bigpods-staging-bootstrap.yaml
+
+          echo "✅ Image tags updated to version ${VERSION}"
+
+          # Show what changed
+          echo "📋 Updated images:"
+          grep "image: ghcr.io/dreamscape-ai/" k8s/bigpods-staging-bootstrap.yaml | sort | uniq
+
       - name: 📦 Bootstrap staging k8s resources
         run: |
           kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
@@ -539,6 +556,23 @@ jobs:
             echo "STRIPE_SECRET_KEY=${stripe_secret_val}"
             echo "OPENAI_API_KEY=${openai_api_key_val}"
           } >> $GITHUB_ENV
+
+      - name: 🏷️ Update image tags to version ${{ needs.pre-deployment.outputs.deployment-version }}
+        env:
+          VERSION: ${{ needs.pre-deployment.outputs.deployment-version }}
+        run: |
+          echo "🏷️ Updating image tags from :production to :${VERSION}..."
+
+          # Update all BigPods image tags in the bootstrap file
+          sed -i "s|ghcr.io/dreamscape-ai/core-pod:production|ghcr.io/dreamscape-ai/core-pod:${VERSION}|g" k8s/bigpods-production-bootstrap.yaml
+          sed -i "s|ghcr.io/dreamscape-ai/business-pod:production|ghcr.io/dreamscape-ai/business-pod:${VERSION}|g" k8s/bigpods-production-bootstrap.yaml
+          sed -i "s|ghcr.io/dreamscape-ai/experience-pod:production|ghcr.io/dreamscape-ai/experience-pod:${VERSION}|g" k8s/bigpods-production-bootstrap.yaml
+
+          echo "✅ Image tags updated to version ${VERSION}"
+
+          # Show what changed
+          echo "📋 Updated images:"
+          grep "image: ghcr.io/dreamscape-ai/" k8s/bigpods-production-bootstrap.yaml | sort | uniq
 
       - name: 📦 Bootstrap production k8s resources
         run: |
