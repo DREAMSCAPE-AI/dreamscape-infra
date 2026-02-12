@@ -191,7 +191,7 @@ git push origin dev
 |--------|-------------|------------|
 | dev | dev | ⏭️ Tests only, no deploy |
 | staging | staging | ✅ Full deployment to K3s |
-| main | production | ✅ Full deployment to K3s |
+| main | staging | ✅ Full deployment to K3s |
 
 ### Déclenchement Manuel
 
