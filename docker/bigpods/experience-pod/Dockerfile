@@ -14,14 +14,18 @@ RUN apk add --no-cache git python3 make g++ curl
 # Set working directory for web client build
 WORKDIR /build/web
 
-# For testing - create dummy package.json if not exists
-RUN echo '{"name":"web-client","version":"1.0.0","scripts":{"build":"echo Built"}}' > package.json
-RUN npm ci --only=production --silent && npm cache clean --force || true
+# Expect dreamscape-frontend repo to be cloned by CI/CD at same level as dreamscape-infra
+# Copy entire web-client directory (context is now ../..)
+COPY dreamscape-frontend/web-client/ ./
 
-# Create dummy build output for testing
-RUN mkdir -p dist && echo '<html><body>DreamScape Experience Pod - Web Client</body></html>' > dist/index.html
+# Copy .env.staging and rename to .env for Vite to use during build
+# This injects the staging URLs (79.72.27.180:30318) into the frontend bundle
+COPY dreamscape-infra/docker/bigpods/experience-pod/.env.staging ./.env
 
-# Build with production optimizations
+# Install dependencies
+RUN npm ci --silent && npm cache clean --force
+
+# Build with production optimizations (Vite will load .env)
 RUN npm run build
 
 # ===============================================
@@ -31,13 +35,11 @@ FROM node:20-alpine AS gateway-builder
 
 WORKDIR /build/gateway
 
-# For testing - create dummy gateway package.json
-RUN echo '{"name":"gateway","version":"1.0.0","scripts":{"build":"echo Gateway Built"},"dependencies":{"express":"^4.18.0"}}' > package.json
-RUN npm ci --only=production --silent && npm cache clean --force || true
+# Copy gateway service code (already in this repo, context is ../..)
+COPY dreamscape-infra/docker/bigpods/experience-pod/services/gateway-service/ ./
 
-# Create dummy gateway build output
-RUN mkdir -p dist && echo 'console.log("Gateway Service Starting");' > dist/server.js
-RUN npm run build
+# Install dependencies
+RUN npm ci --only=production --silent && npm cache clean --force
 
 # ===============================================
 # Stage 3: Panorama Service Builder
@@ -111,12 +113,8 @@ COPY --from=frontend-builder /build/web/dist /usr/share/nginx/html/
 # Copy pre-compressed assets for NGINX gzip_static
 COPY --from=frontend-builder /build/web/dist/*.gz /usr/share/nginx/html/
 
-# Gateway service with built application
-COPY --from=gateway-builder /build/gateway/dist /app/gateway/dist/
-COPY --from=gateway-builder /build/gateway/package.json /app/gateway/
-# Copy proper gateway service
-COPY services/gateway-service/server.js /app/gateway/dist/server.js
-COPY services/gateway-service/package.json /app/gateway/package.json
+# Gateway service (Node.js - no build needed, direct copy)
+COPY --from=gateway-builder /build/gateway/ /app/gateway/
 
 # Install gateway production dependencies
 WORKDIR /app/gateway

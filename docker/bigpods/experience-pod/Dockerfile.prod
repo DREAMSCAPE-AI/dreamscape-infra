@@ -9,6 +9,11 @@
 # =============================================================================
 FROM node:20-alpine AS web-builder
 
+# Build argument for environment (staging or production)
+# La CI passe BUILD_MODE via docker-compose args: BUILD_MODE: ${BUILD_MODE:-production}
+# Vite charge alors .env.${BUILD_MODE} qui contient les VITE_* pour chaque env.
+ARG BUILD_MODE=production
+
 WORKDIR /build/web
 
 COPY dreamscape-frontend/web-client/package*.json ./
@@ -17,7 +22,8 @@ RUN npm install --ignore-scripts && npm cache clean --force
 COPY dreamscape-frontend/web-client ./
 
 ENV NODE_ENV=production
-RUN npm run build
+
+RUN npm run build -- --mode ${BUILD_MODE}
 
 # =============================================================================
 # Stage 2: Production Image

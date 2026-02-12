@@ -153,6 +153,8 @@ services:
     build:
       context: ../../
       dockerfile: dreamscape-infra/docker/bigpods/experience-pod/Dockerfile.prod
+      args:
+        BUILD_MODE: ${BUILD_MODE:-production}
       platforms:
         - linux/arm64
     image: ${REGISTRY_URL:-ghcr.io}/${REGISTRY_NAMESPACE:-dreamscape}/experience-pod

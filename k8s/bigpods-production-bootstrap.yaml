@@ -97,12 +97,12 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:production
           ports:
             - containerPort: 3001
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3001"
             - name: DATABASE_URL
@@ -130,13 +130,13 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -169,12 +169,12 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:production
           ports:
             - containerPort: 3002
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3002"
             - name: DATABASE_URL
@@ -202,13 +202,13 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -242,12 +242,29 @@ spec:
     spec:
       containers:
         - name: voyage-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo '🔧 Fixing symlinks before startup...'
+              rm -f /app/voyage/node_modules/@dreamscape/kafka
+              ln -sf ../../../shared/kafka /app/voyage/node_modules/@dreamscape/kafka
+              rm -f /app/voyage/node_modules/@dreamscape/db
+              ln -sf ../../../db /app/voyage/node_modules/@dreamscape/db
+              rm -rf /app/voyage/node_modules/.prisma
+              ln -sf /app/db/node_modules/.prisma /app/voyage/node_modules/.prisma
+              echo '✅ Symlinks fixed!'
+              echo '🔧 Generating Prisma client...'
+              cd /app/voyage && npx prisma generate --schema=/app/db/prisma/schema.prisma
+              echo '✅ Prisma client generated!'
+              echo '🚀 Starting services...'
+              exec /usr/bin/dumb-init /usr/local/bin/entrypoint.sh supervisord -c /etc/supervisor/conf.d/supervisord.conf
           ports:
             - containerPort: 3003
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3003"
             - name: DATABASE_URL
@@ -277,15 +294,25 @@ spec:
             - name: S3_SECRET_KEY
               value: minioadmin123
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
+            - name: STRIPE_SECRET_KEY
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
+            - name: STRIPE_PUBLISHABLE_KEY
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
+            - name: STRIPE_WEBHOOK_SECRET
+              value: whsec_your_webhook_secret_here
+            - name: FRONTEND_URL
+              value: http://84.235.237.183
 ---
 apiVersion: v1
 kind: Service
@@ -316,12 +343,29 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo '🔧 Fixing symlinks before startup...'
+              rm -f /app/voyage/node_modules/@dreamscape/kafka
+              ln -sf ../../../shared/kafka /app/voyage/node_modules/@dreamscape/kafka
+              rm -f /app/voyage/node_modules/@dreamscape/db
+              ln -sf ../../../db /app/voyage/node_modules/@dreamscape/db
+              rm -rf /app/voyage/node_modules/.prisma
+              ln -sf /app/db/node_modules/.prisma /app/voyage/node_modules/.prisma
+              echo '✅ Symlinks fixed!'
+              echo '🔧 Generating Prisma client...'
+              cd /app/voyage && npx prisma generate --schema=/app/db/prisma/schema.prisma
+              echo '✅ Prisma client generated!'
+              echo '🚀 Starting services...'
+              exec /usr/bin/dumb-init /usr/local/bin/entrypoint.sh supervisord -c /etc/supervisor/conf.d/supervisord.conf
           ports:
             - containerPort: 3005
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3005"
             - name: DATABASE_URL
@@ -343,13 +387,21 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
-              value: http://dreamscape-gateway-service:3000
+              value: http://84.235.237.183
             - name: STRIPE_SECRET_KEY
-              value: sk_test_dummy_secret_key
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
-              value: pk_test_dummy_publishable_key
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
             - name: STRIPE_WEBHOOK_SECRET
-              value: whsec_dummy_webhook_secret
+              value: whsec_your_webhook_secret_here
+            - name: AMADEUS_API_KEY
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
+            - name: AMADEUS_API_SECRET
+              value: wKeJSHOvcfeiZOw3
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
 ---
 apiVersion: v1
 kind: Service
@@ -380,12 +432,12 @@ spec:
     spec:
       containers:
         - name: ai-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:production
           ports:
             - containerPort: 3004
           env:
             - name: NODE_ENV
-              value: staging
+              value: production
             - name: PORT
               value: "3004"
             - name: DATABASE_URL
@@ -407,13 +459,13 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183
             - name: CORS_ORIGIN
-              value: http://dreamscape-web-client-service:5173
+              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
-              value: amadeus_test_key
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
-              value: amadeus_test_secret
+              value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
 ---
@@ -447,7 +499,7 @@ spec:
     spec:
       containers:
         - name: gateway-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 3000
           env:
@@ -476,7 +528,7 @@ spec:
     app: gateway-service
   ports:
     - port: 3000
-      targetPort: 3007
+      targetPort: 3000
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -495,7 +547,7 @@ spec:
     spec:
       containers:
         - name: panorama-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 3006
           env:
@@ -533,7 +585,7 @@ spec:
     spec:
       containers:
         - name: web-client-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:production
           ports:
             - containerPort: 80
           env:
@@ -564,6 +616,13 @@ spec:
   rules:
     - http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: dreamscape-gateway-service
+                port:
+                  number: 3000
           - path: /
             pathType: Prefix
             backend:

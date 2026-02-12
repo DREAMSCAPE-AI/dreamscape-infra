@@ -323,9 +323,12 @@ build_pod() {
         build_options="$build_options --parallel"
     fi
 
-    local full_build_cmd="cd '$DOCKER_DIR' && $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
+    # Pass BUILD_MODE to docker-compose (defaults to production if not set)
+    local build_mode="${BUILD_MODE:-production}"
+    local full_build_cmd="cd '$DOCKER_DIR' && BUILD_MODE='$build_mode' $compose_cmd -f '$compose_file' build $build_options ${pod_name}-pod"
 
     log_verbose "Build command: $full_build_cmd"
+    log_info "Build mode: $build_mode"
 
     # Execute build with timeout
     if timeout "$BUILD_TIMEOUT" bash -c "$full_build_cmd"; then
@@ -371,11 +374,18 @@ push_pod_images() {
     local image_name
     image_name=$(get_pod_image_name "$pod_name")
 
-    # Push latest tag
-    if docker push "${image_name}:latest"; then
-        log_success "Pushed ${image_name}:latest"
+    # Determine environment tag based on BUILD_MODE
+    local env_tag="${BUILD_MODE:-production}"
+
+    # Tag with environment-specific tag
+    docker tag "${image_name}:latest" "${image_name}:${env_tag}"
+    log_info "Tagged ${image_name}:${env_tag}"
+
+    # Push environment-specific tag (staging or production)
+    if docker push "${image_name}:${env_tag}"; then
+        log_success "Pushed ${image_name}:${env_tag}"
     else
-        log_error "Failed to push ${image_name}:latest"
+        log_error "Failed to push ${image_name}:${env_tag}"
         return 1
     fi
 
