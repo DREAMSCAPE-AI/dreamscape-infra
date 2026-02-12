@@ -1,0 +1,78 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-service-network-policy
+  labels:
+    app: gateway-service
+    component: gateway
+    part-of: dreamscape
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: auth-service
+    ports:
+    - protocol: TCP
+      port: 3001
+  - to:
+    - podSelector:
+        matchLabels:
+          app: user-service
+    ports:
+    - protocol: TCP
+      port: 3002
+  - to:
+    - podSelector:
+        matchLabels:
+          app: voyage-service
+    ports:
+    - protocol: TCP
+      port: 3003
+  - to:
+    - podSelector:
+        matchLabels:
+          app: payment-service
+    ports:
+    - protocol: TCP
+      port: 3004
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ai-service
+    ports:
+    - protocol: TCP
+      port: 3005
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
