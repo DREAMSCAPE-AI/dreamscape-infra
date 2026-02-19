@@ -1,8 +1,6 @@
 name: 🚀 Central CI/CD Pipeline
 
 on:
-  repository_dispatch:
-    types: [services-changed, frontend-changed, tests-changed, docs-changed]
   workflow_dispatch:
     inputs:
       event_type:
