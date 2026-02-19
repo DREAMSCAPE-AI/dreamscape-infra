@@ -225,12 +225,6 @@ jobs:
           cd source-repo/${{ matrix.service }}
           npm run test --if-present || echo "No tests found"
 
-      - name: Build service
-        if: steps.check.outputs.exists == 'true'
-        run: |
-          cd source-repo/${{ matrix.service }}
-          npm run build --if-present || echo "No build script"
-
       - name: Build Docker image
         if: steps.check.outputs.exists == 'true'
         run: |
@@ -291,12 +285,6 @@ jobs:
         run: |
           cd source-repo/${{ matrix.component }}
           npm run test --if-present || echo "No tests found"
-
-      - name: Build component
-        if: steps.check.outputs.exists == 'true'
-        run: |
-          cd source-repo/${{ matrix.component }}
-          npm run build --if-present || echo "No build script"
 
       - name: Build Docker image
         if: steps.check.outputs.exists == 'true'
