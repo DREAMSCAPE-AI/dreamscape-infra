@@ -185,8 +185,8 @@ services:
       - AUTH_SERVICE_URL=http://core-pod:3001
       - USER_SERVICE_URL=http://core-pod:3002
       - VOYAGE_SERVICE_URL=http://business-pod:3003
-      - AI_SERVICE_URL=http://business-pod:3004
-      - PAYMENT_SERVICE_URL=http://business-pod:3005
+      - AI_SERVICE_URL=http://business-pod:3005
+      - PAYMENT_SERVICE_URL=http://business-pod:3004
 
       # Monitoring
       - ENABLE_METRICS=true
