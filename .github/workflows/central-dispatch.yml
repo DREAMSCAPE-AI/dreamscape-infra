@@ -1,12 +1,6 @@
 name: Central CI/CD Pipeline - Repository Dispatch
 
 on:
-  repository_dispatch:
-    types: 
-      - services-changed
-      - frontend-changed  
-      - tests-changed
-      - docs-changed
   workflow_dispatch:
     inputs:
       source_repo:
