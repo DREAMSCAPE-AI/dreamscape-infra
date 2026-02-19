@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-service-pdb
+  labels:
+    app: gateway-service
+    component: gateway
+    part-of: dreamscape
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway-service

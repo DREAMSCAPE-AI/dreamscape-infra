@@ -97,7 +97,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 3001
@@ -170,7 +170,7 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: ghcr.io/dreamscape-ai/core-pod:latest
+          image: ghcr.io/dreamscape-ai/core-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 3002
@@ -244,7 +244,7 @@ spec:
     spec:
       containers:
         - name: voyage-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:staging
           imagePullPolicy: Always
           command:
             - /bin/sh
@@ -306,6 +306,16 @@ spec:
               value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
+            - name: STRIPE_SECRET_KEY
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
+            - name: STRIPE_PUBLISHABLE_KEY
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
+            - name: STRIPE_WEBHOOK_SECRET
+              value: whsec_your_webhook_secret_here
+            - name: FRONTEND_URL
+              value: http://79.72.27.180
 ---
 apiVersion: v1
 kind: Service
@@ -336,7 +346,7 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:staging
           imagePullPolicy: Always
           command:
             - /bin/sh
@@ -382,12 +392,20 @@ spec:
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
               value: http://dreamscape-gateway-service:3000
+            - name: AMADEUS_API_KEY
+              value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
+            - name: AMADEUS_API_SECRET
+              value: wKeJSHOvcfeiZOw3
+            - name: AMADEUS_BASE_URL
+              value: https://test.api.amadeus.com
+            - name: PAYMENT_SERVICE_URL
+              value: http://dreamscape-payment-service:3005
             - name: STRIPE_SECRET_KEY
-              value: sk_test_dummy_secret_key
+              value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
-              value: pk_test_dummy_publishable_key
+              value: pk_test_51Sho6P0R70uj0yvKhgBjqPqxzlpt6KJQhW076xxqvKEwnPhjXHUL7UQJijXoRFLKeYYBefqVehnmcDFAn6aGgR7s00M93OwzJs
             - name: STRIPE_WEBHOOK_SECRET
-              value: whsec_dummy_webhook_secret
+              value: whsec_your_webhook_secret_here
 ---
 apiVersion: v1
 kind: Service
@@ -418,7 +436,7 @@ spec:
     spec:
       containers:
         - name: ai-service
-          image: ghcr.io/dreamscape-ai/business-pod:latest
+          image: ghcr.io/dreamscape-ai/business-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 3004
@@ -486,7 +504,7 @@ spec:
     spec:
       containers:
         - name: gateway-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -535,7 +553,7 @@ spec:
     spec:
       containers:
         - name: panorama-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 3006
@@ -574,7 +592,7 @@ spec:
     spec:
       containers:
         - name: web-client-service
-          image: ghcr.io/dreamscape-ai/experience-pod:latest
+          image: ghcr.io/dreamscape-ai/experience-pod:staging
           imagePullPolicy: Always
           ports:
             - containerPort: 5173
@@ -607,3 +625,30 @@ spec:
     - port: 80
       targetPort: 80
       protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-client-ingress
+  namespace: staging
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: dreamscape-gateway-service
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dreamscape-web-client-service
+                port:
+                  number: 80

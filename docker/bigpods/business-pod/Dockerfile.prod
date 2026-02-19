@@ -50,7 +50,36 @@ RUN find dist -name '*.js' -type f -exec sed -i -E \
     -e "s|\.js\.js'|.js'|g" \
     {} \;
 
-# Stage 2: Final Multi-Service Runtime
+# Stage 2: Build Payment Service (TypeScript)
+FROM node:20-alpine3.18 AS payment-builder
+WORKDIR /app
+
+# Copy shared modules (needed for payment service dependencies)
+COPY dreamscape-services/shared ./shared
+RUN cd shared/kafka && npm install && npm run build
+
+# Copy shared DB
+COPY dreamscape-services/db ./db
+RUN cd db && npm install && npx prisma generate
+
+# Copy payment service files
+COPY dreamscape-services/payment/package*.json dreamscape-services/payment/tsconfig.json ./payment/
+
+WORKDIR /app/payment
+ENV CYPRESS_INSTALL_BINARY=0
+ENV PRISMA_SCHEMA_PATH=/app/db/prisma/schema.prisma
+ENV DATABASE_URL=postgresql://dreamscape:password@postgres:5432/dreamscape
+
+# Install payment dependencies
+RUN npm install
+
+# Copy payment source code
+COPY dreamscape-services/payment/src ./src
+
+# Build TypeScript (Prisma client will be available via symlink at runtime)
+RUN npm run build
+
+# Stage 3: Final Multi-Service Runtime
 # Using Alpine 3.18 for OpenSSL 1.1 compatibility
 FROM node:20-alpine3.18 AS runtime
 
@@ -127,25 +156,19 @@ RUN printf '%s\n' \
     > /app/ai/server.py \
     && chmod +x /app/ai/server.py
 
-# Payment Service stub (JavaScript - always present)
-RUN printf '%s\n' \
-    "#!/usr/bin/env node" \
-    "const http = require('http');" \
-    "const PORT = parseInt(process.env.PORT || '3005', 10);" \
-    "const send = (res, status, payload) => {res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(payload));};" \
-    "const server = http.createServer((req, res) => {" \
-    "  if (req.method === 'GET' && ['/health','/healthz','/status'].includes(req.url)) return send(res, 200, {status:'ok', service:'payment-stub'});" \
-    "  if (req.method === 'POST' && req.url === '/payments') {" \
-    "    let body=''; req.on('data', c => {body+=c; if (body.length>1e6) req.socket.destroy();});" \
-    "    req.on('end', () => {try {body = body ? JSON.parse(body) : {}; } catch {return send(res,400,{error:'invalid-json'});} send(res,201,{status:'created',id:'stub-payment',received:body});});" \
-    "    return;" \
-    "  }" \
-    "  send(res, 200, {message:'payment stub running', path:req.url});" \
-    "});" \
-    "server.listen(PORT, () => console.log('Payment stub listening on ' + PORT));" \
-    > /app/payment/server.js \
-    && chmod +x /app/payment/server.js
-COPY --chown=nodejs:nodejs dreamscape-services/payment/package.json /app/payment/
+# Payment Service built artifacts (TypeScript)
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/dist /app/payment/dist
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/node_modules /app/payment/node_modules
+COPY --from=payment-builder --chown=nodejs:nodejs /app/payment/package.json /app/payment/
+
+# Create symlinks for @dreamscape/* packages for payment service
+RUN mkdir -p /app/payment/node_modules/@dreamscape && \
+    rm -f /app/payment/node_modules/@dreamscape/db && \
+    ln -sf ../../../db /app/payment/node_modules/@dreamscape/db && \
+    rm -f /app/payment/node_modules/@dreamscape/kafka && \
+    ln -sf ../../../shared/kafka /app/payment/node_modules/@dreamscape/kafka && \
+    rm -rf /app/payment/node_modules/.prisma && \
+    ln -sf /app/db/node_modules/.prisma /app/payment/node_modules/.prisma
 
 # Copy NGINX configuration
 COPY --chown=nginx:nginx dreamscape-infra/docker/business-pod/nginx/nginx.conf /etc/nginx/nginx.conf

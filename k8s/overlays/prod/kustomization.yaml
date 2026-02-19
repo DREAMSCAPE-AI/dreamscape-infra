@@ -13,12 +13,6 @@ resources:
 - ../../base/voyage
 - ../../base/common
 
-patchesStrategicMerge:
-- auth-patch.yaml
-- gateway-patch.yaml
-- user-patch.yaml
-- voyage-patch.yaml
-
 configMapGenerator:
 - name: environment-config
   literals:

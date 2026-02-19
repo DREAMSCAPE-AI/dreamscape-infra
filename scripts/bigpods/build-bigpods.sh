@@ -374,11 +374,18 @@ push_pod_images() {
     local image_name
     image_name=$(get_pod_image_name "$pod_name")
 
-    # Push latest tag
-    if docker push "${image_name}:latest"; then
-        log_success "Pushed ${image_name}:latest"
+    # Determine environment tag based on BUILD_MODE
+    local env_tag="${BUILD_MODE:-production}"
+
+    # Tag with environment-specific tag
+    docker tag "${image_name}:latest" "${image_name}:${env_tag}"
+    log_info "Tagged ${image_name}:${env_tag}"
+
+    # Push environment-specific tag (staging or production)
+    if docker push "${image_name}:${env_tag}"; then
+        log_success "Pushed ${image_name}:${env_tag}"
     else
-        log_error "Failed to push ${image_name}:latest"
+        log_error "Failed to push ${image_name}:${env_tag}"
         return 1
     fi
 

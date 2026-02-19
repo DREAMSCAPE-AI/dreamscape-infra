@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  labels:
+    app: gateway-service
+    component: gateway
+    part-of: dreamscape
+data:
+  LOG_LEVEL: "info"
+  REQUEST_TIMEOUT: "30000"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "1000"
+  CORS_ORIGINS: "https://dreamscape.com,https://app.dreamscape.com"
+  MAX_REQUEST_SIZE: "10mb"
+  COMPRESSION_ENABLED: "true"
+  HEALTH_CHECK_PATH: "/health"

@@ -74,7 +74,7 @@ jobs:
           
           case "${{ github.ref }}" in
             "refs/heads/main")
-              ENVIRONMENT="production"
+              ENVIRONMENT="staging"
               ;;
             "refs/heads/develop")
               ENVIRONMENT="staging"
