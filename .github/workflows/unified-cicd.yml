@@ -358,9 +358,12 @@ jobs:
                 exit 0
               fi
 
+              DOCKERFILE_PATH="${SERVICE_DIR}/${DOCKERFILE}"
               echo "should_build=true" >> $GITHUB_OUTPUT
+              echo "service_dir=${SERVICE_DIR}" >> $GITHUB_OUTPUT
               echo "dockerfile=${DOCKERFILE}" >> $GITHUB_OUTPUT
-              echo "✅ Will build ${SERVICE} using ${DOCKERFILE}"
+              echo "dockerfile_path=${DOCKERFILE_PATH}" >> $GITHUB_OUTPUT
+              echo "✅ Will build ${SERVICE} using ${DOCKERFILE_PATH}"
             else
               echo "should_build=false" >> $GITHUB_OUTPUT
               echo "⏭️ Skipping ${SERVICE} (not found)"
@@ -386,8 +389,9 @@ jobs:
         if: steps.check.outputs.should_build == 'true'
         uses: docker/build-push-action@v5
         with:
-          context: source-repo/${{ matrix.service }}
-          file: source-repo/${{ matrix.service }}/${{ steps.check.outputs.dockerfile }}
+          # Use repository root context so Dockerfiles can copy sibling directories (db/shared/etc.)
+          context: source-repo
+          file: ${{ steps.check.outputs.dockerfile_path }}
           push: true
           tags: |
             ${{ env.DOCKER_REGISTRY }}/${{ env.ORG }}/${{ matrix.service }}:${{ needs.parse-and-create-deployment.outputs.source_sha }}
