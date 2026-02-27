@@ -242,6 +242,8 @@ jobs:
       - name: 🏗️ Build Release Images
         working-directory: scripts/bigpods
         timeout-minutes: 30
+        env:
+          BIGPODS_COMPOSE_FILE: docker-compose.bigpods.prod.yml
         run: |
           echo "🏗️ Building release images for ${{ matrix.pod }} pod..."
 
