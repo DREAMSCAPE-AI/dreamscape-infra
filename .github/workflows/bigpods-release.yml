@@ -240,11 +240,11 @@ jobs:
 
           # Build with comprehensive tags
           ./build-bigpods.sh \
-            --pod ${{ matrix.pod }} \
             --version "$version" \
             --no-cache \
             --push \
-            --verbose
+            --verbose \
+            ${{ matrix.pod }}
 
       - name: 🏷️ Tag Additional Versions
         run: |
