@@ -220,6 +220,15 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
+      - name: 📦 Checkout build dependencies
+        run: |
+          if [[ ! -d ../dreamscape-services ]]; then
+            git clone --depth 1 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/DREAMSCAPE-AI/dreamscape-services.git ../dreamscape-services
+          fi
+          if [[ ! -d ../dreamscape-frontend ]]; then
+            git clone --depth 1 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/DREAMSCAPE-AI/dreamscape-frontend.git ../dreamscape-frontend
+          fi
+
       - name: 🐳 Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
