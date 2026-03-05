@@ -64,3 +64,13 @@ patches:
     - op: replace
       path: /spec/maxReplicas
       value: 5
+
+- target:
+    kind: Deployment
+    name: voyage-service
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: VITE_AUTH_SERVICE_URL
+        value: http://auth-service:3001
