@@ -1,3 +1,7 @@
+> Legacy architecture notice:
+> This file documents the old `repository_dispatch` + `unified-cicd` model.
+> For the current flow, use `CICD_README.md`.
+
 # CI/CD Setup Guide - GitHub Deployments & Jira Integration
 
 ## Overview

@@ -1,326 +1,289 @@
-# CI/CD Pipeline - GitHub Deployments & Jira Integration
+# Dreamscape Infra CI/CD
 
 ## Quick Overview
 
-This is the **unified CI/CD pipeline** for DreamScape's multi-repository architecture with **GitHub Deployments API** and **Jira integration**.
+This document describes the active CI/CD model used by the Dreamscape repositories.
+It replaces the old `repository_dispatch` plus `unified-cicd.yml` architecture.
 
-## Key Features
+Current deployment source of truth:
+- `dreamscape-infra/.github/workflows/bigpods-cd.yml`
 
-✅ **GitHub Deployments API** - Track deployments natively in GitHub
-✅ **Jira Integration** - Automatic deployment tracking in Jira issues
-✅ **Multi-Repository Support** - Coordinates services, frontend, tests, docs
-✅ **Environment Protection** - Production approvals; staging auto-deploy on `main`
-✅ **Single Source of Truth** - One unified workflow instead of 5+ fragmented ones
-✅ **Proper Status Tracking** - Both commit status AND deployment status
-✅ **Automated Testing** - Integration tests run before deployment
-✅ **Docker Build & Push** - Automatic image creation and registry push
-✅ **K3s Deployment** - Automated Kubernetes deployments
+Current trigger model:
+- `dreamscape-frontend` and `dreamscape-services` run local CI on push and pull request
+- on `push` to `main`, they call `actions.createWorkflowDispatch`
+- the dispatched infra workflow is `bigpods-cd.yml`
+- `dreamscape-tests` remains CI-only and does not deploy infra
 
-## Architecture
+## Goals
 
+- Keep CI close to each source repository
+- Keep deployment orchestration centralized in infra
+- Remove duplicate central workflows and legacy dispatch chains
+- Make staging deployment happen from a single workflow entrypoint
+
+## Active Workflows
+
+| Repository | Workflow | Role | Trigger |
+|---|---|---|---|
+| `dreamscape-infra` | `.github/workflows/bigpods-cd.yml` | Build and deploy Big Pods | `push` on `main`, `workflow_dispatch` |
+| `dreamscape-infra` | `.github/workflows/bigpods-ci.yml` | Validate Big Pods scripts and config | infra `push` / `pull_request` |
+| `dreamscape-infra` | `.github/workflows/bigpods-release.yml` | Release management | tag push, release, `workflow_dispatch` |
+| `dreamscape-infra` | `.github/workflows/ci.yml` | Infra code quality checks | infra `push` / `pull_request` / manual |
+| `dreamscape-frontend` | `.github/workflows/ci-trigger.yml` | Frontend CI + infra CD trigger | `push`, `pull_request` |
+| `dreamscape-services` | `.github/workflows/ci-trigger.yml` | Services CI + infra CD trigger | `push`, `pull_request` |
+| `dreamscape-services` | `.github/workflows/ci.yml` | Services CI + test fan-out | `push`, `pull_request` |
+| `dreamscape-tests` | `.github/workflows/branch-testing.yml` | Multi-repo test orchestration | `push`, `pull_request`, `repository_dispatch` |
+
+## Runtime Architecture
+
+```text
+push main on frontend/services
+        |
+        v
+local CI in source repo
+        |
+        v
+createWorkflowDispatch(bigpods-cd.yml, environment=staging)
+        |
+        v
+dreamscape-infra / bigpods-cd.yml
+  1. pre-deployment validation
+  2. build and push pod images
+  3. deploy staging or production
+  4. post-deployment validation
 ```
-┌──────────────────────┐
-│ dreamscape-services  │─┐
-│ dreamscape-frontend  │─┤
-│ dreamscape-tests     │─┼─► repository_dispatch ─► dreamscape-infra/unified-cicd.yml
-│ dreamscape-docs      │─┘                           │
-└──────────────────────┘                             │
-                                                     ↓
-                                          ┌──────────────────────┐
-                                          │ 1. Create Deployment │
-                                          │ 2. Run Tests         │
-                                          │ 3. Build Images      │
-                                          │ 4. Deploy to K3s     │
-                                          │ 5. Update Status     │
-                                          └──────────┬───────────┘
-                                                     │
-                                                     ↓
-                                          deployment_status webhook
-                                                     │
-                                                     ↓
-                                              Jira Software
+
+```text
+push or PR on tests repo
+        |
+        v
+dreamscape-tests / branch-testing.yml
+  1. clone frontend/services when needed
+  2. run unit / integration / e2e flows
+  3. publish test summary
+  4. no infra deployment
 ```
 
-## Files Created
+## Cross-Repository Contract
 
-### Main Workflow
-- **`dreamscape-infra/.github/workflows/unified-cicd.yml`**
-  Central orchestration workflow with GitHub Deployments API
+### Frontend and services to infra
 
-### Repository Triggers
-- **`dreamscape-services/.github/workflows/ci-trigger.yml`**
-  Triggers central pipeline when services change
+The source repositories dispatch infra only when all of the following are true:
 
-- **`dreamscape-frontend/.github/workflows/ci-trigger.yml`**
-  Triggers central pipeline when frontend changes
+- event is `push`
+- branch is `main`
+- `DISPATCH_TOKEN` exists
 
-### Documentation
-- **`dreamscape-infra/docs/CICD_SETUP.md`**
-  Complete setup guide for GitHub Deployments & Jira
+The dispatch payload currently uses:
 
-- **`dreamscape-infra/docs/MIGRATION_GUIDE.md`**
-  Step-by-step migration from old workflows
+```text
+workflow_id: bigpods-cd.yml
+environment: staging
+version: <short source sha>
+deployment_strategy: rolling
+force_deployment: false
+```
+
+### Services to tests
+
+`dreamscape-services/.github/workflows/ci.yml` can still send:
+
+```text
+repository_dispatch
+event_type: test-request
+```
+
+That event is consumed by:
+
+- `dreamscape-tests/.github/workflows/branch-testing.yml`
+
+This is test orchestration only. It is not part of infra deployment.
+
+## Branch and Event Behavior
+
+| Source | Event | Expected result |
+|---|---|---|
+| frontend/services | push `main` | local CI + dispatch infra staging deployment |
+| frontend/services | push non-main | local CI only |
+| frontend/services | pull request | local CI only |
+| tests | push `main`, `dev`, `develop` | tests CI runs |
+| tests | pull request to `main`, `dev`, `develop` | tests CI runs |
+| services | `test-request` dispatch | tests CI runs in `dreamscape-tests` |
+| infra | push `main` | `bigpods-cd.yml` can run directly |
+| infra | manual dispatch | operator-triggered deployment |
+
+## What `bigpods-cd.yml` Actually Does
+
+High-level job flow:
+
+1. `pre-deployment`
+   - resolve environment
+   - resolve version
+   - resolve deployment strategy
+   - validate prerequisites
+2. `build-and-push`
+   - checkout infra
+   - clone frontend and services dependencies
+   - build and push pod images to GHCR
+3. `deploy-staging` or `deploy-production`
+   - prepare environment
+   - configure Kubernetes access
+   - update image tags in bootstrap manifests
+   - bootstrap Kubernetes resources
+4. `post-deployment-validation`
+   - summarize deployment
+   - notify
+   - cleanup
+
+## Important Implementation Notes
+
+### Deployment version input
+
+The `version` passed by frontend or services is used as the deployment version in `bigpods-cd.yml`.
+It is not a strict source checkout pin for frontend or services code.
+
+Today, `bigpods-cd.yml` clones frontend and services with `git clone --depth 1` from the remote repository default branch.
+That means:
+
+- the deployment is tagged with the source repo short SHA
+- the actual build input is "latest remote default branch at build time"
+- if strict source-to-image traceability is required, the workflow still needs a follow-up change
+
+This is not introduced by the doc/scripts cleanup. It is an existing behavior in `bigpods-cd.yml`.
+
+### Tests repository scope
+
+`dreamscape-tests` is now intentionally CI-only.
+No test workflow should trigger infra deployment.
+
+## Secrets
+
+### Source repositories
+
+Required in:
+- `dreamscape-frontend`
+- `dreamscape-services`
+
+Secret:
+- `DISPATCH_TOKEN`
+
+Purpose:
+- allows `actions.createWorkflowDispatch` on `dreamscape-infra`
+
+### Infra repository
+
+Referenced by `bigpods-cd.yml`:
+
+- `K3S_HOST`
+- `K3S_SSH_KEY`
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
+- `DATABASE_URL`
+- `REDIS_URL`
+- `STRIPE_SECRET_KEY`
+- `OPENAI_API_KEY`
+- `SLACK_WEBHOOK_URL`
+
+Implicit GitHub secret:
+- `GITHUB_TOKEN`
 
 ## Quick Start
 
-### 1. Setup GitHub Environments
+### 1. Verify the current architecture
 
-For each repository, create 3 environments:
-
-```bash
-# In GitHub UI: Settings → Environments → New environment
-
-dev        # No restrictions
-staging    # Auto deploy on push to main (no approval gate)
-production # Manual promotion only (2 reviewers + 5 min wait)
-```
-
-### 2. Add Secrets
-
-**Repository Secrets** (for all repos):
-```
-DISPATCH_TOKEN  # Personal Access Token with repo + workflow scopes
-```
-
-**Environment Secrets** (for each environment):
-```
-K3S_HOST      # K3s server IP
-K3S_SSH_KEY   # SSH private key
-```
-
-### 3. Install Jira for GitHub
-
-1. Jira → Apps → Find new apps → "GitHub for Jira"
-2. Connect `DREAMSCAPE-AI` organization
-3. Select all repositories
-4. Enable **Deployments** feature
-
-### 4. Test the Pipeline
+From `dreamscape-infra`:
 
 ```bash
-cd dreamscape-services/auth
-git checkout -b feature/test-cicd
-echo "// test" >> src/server.ts
-git commit -m "DR-123: Test CI/CD pipeline"
-git push origin feature/test-cicd
+./scripts/QUICK_DEPLOY_COMMANDS.sh check
 ```
 
-**What happens**:
-1. Local CI runs (lint/typecheck)
-2. Triggers `unified-cicd.yml` in dreamscape-infra
-3. Creates GitHub Deployment for `dev` environment
-4. Runs integration tests
-5. Builds Docker image for `auth` service
-6. Deploys to K3s dev cluster
-7. Updates deployment status to `success`
-8. Jira issue `DR-123` shows deployment to `dev`
+What it verifies:
+- local infra workflow files exist
+- remote workflow files exist in frontend, services, tests, and infra
+- legacy `unified-cicd.yml` is not still present locally
 
-## Branch → Environment Mapping
+### 2. Configure dispatch token in source repositories
 
-| Branch | Environment | Approval Required |
-|--------|-------------|-------------------|
-| `feature/**`, `dev` | dev | No |
-| `develop` | staging | 1 reviewer |
-| `main` | staging | No (auto deploy on push) |
-
-## How GitHub Deployments Work
-
-### 1. Create Deployment
-
-```javascript
-const deployment = await github.rest.repos.createDeployment({
-  owner: 'DREAMSCAPE-AI',
-  repo: 'dreamscape-services',
-  ref: 'main',
-  environment: 'staging',
-  description: 'Deploy to staging'
-});
+```bash
+./scripts/QUICK_DEPLOY_COMMANDS.sh setup-secrets
 ```
 
-This creates a **Deployment** object that GitHub and Jira track.
+### 3. Trigger a staging deployment manually
 
-### 2. Update Deployment Status
-
-```javascript
-// Set to in_progress
-await github.rest.repos.createDeploymentStatus({
-  deployment_id: deployment.data.id,
-  state: 'in_progress',
-  description: 'Deployment running'
-});
-
-// Set to success
-await github.rest.repos.createDeploymentStatus({
-  deployment_id: deployment.data.id,
-  state: 'success',
-  environment_url: 'https://staging.dreamscape.ai'
-});
+```bash
+./scripts/QUICK_DEPLOY_COMMANDS.sh trigger-staging
 ```
 
-### 3. Jira Receives Webhook
+Or with an explicit version:
 
-When `createDeploymentStatus` is called, GitHub sends a `deployment_status` webhook to Jira automatically.
-
-## Viewing Deployments
-
-### In GitHub
-
-```
-Repository → Environments → [environment] → View deployment history
+```bash
+./scripts/QUICK_DEPLOY_COMMANDS.sh trigger-staging manual-20260306
 ```
 
-### In Jira
+### 4. Inspect recent deployment runs
 
-```
-Open issue (e.g., DR-123) → Scroll to "Deployments" section
-```
-
-You'll see:
-- ✅ Which environments the issue is deployed to
-- ✅ Deployment time
-- ✅ Deployment status (success/failure)
-- ✅ Link to GitHub Actions run
-- ✅ Link to environment URL
-
-## Workflow Jobs
-
-The unified pipeline has 8 jobs:
-
-1. **parse-and-create-deployment** - Parse event & create GitHub Deployment
-2. **clone-source** - Clone the source repository
-3. **run-tests** - Run integration tests
-4. **build-and-push** - Build & push Docker images
-5. **deploy-to-k3s** - Deploy to Kubernetes cluster
-6. **deployment-success** - Update status to success
-7. **deployment-failure** - Update status to failure (if failed)
-8. **summary** - Generate pipeline summary
-
-## Environment Variables
-
-The workflow uses these environment variables:
-
-```yaml
-DOCKER_REGISTRY: ghcr.io          # GitHub Container Registry
-ORG: dreamscape-ai                # Organization name
+```bash
+./scripts/QUICK_DEPLOY_COMMANDS.sh status
 ```
 
-## Secrets Required
+## Verification Checklist
 
-### Repository Secrets (all repos)
-- `DISPATCH_TOKEN` - GitHub PAT for triggering workflows
+Use this after a real source-repo push or a manual infra dispatch.
 
-### Environment Secrets (per environment)
-- `K3S_HOST` - Kubernetes server IP
-- `K3S_SSH_KEY` - SSH private key for K3s access
-
-### Automatic Secrets
-- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
-
-## Migration from Old Workflows
-
-If you have old workflows (`central-cicd.yml`, `central-dispatch.yml`, `deploy.yml`):
-
-1. **Read** `docs/MIGRATION_GUIDE.md`
-2. **Backup** old workflows
-3. **Disable** old workflows (rename to `.disabled`)
-4. **Deploy** new unified workflow
-5. **Test** with dev environment
-6. **Delete** old workflows after validation
+1. In the source repo, confirm local CI actually ran lint, typecheck, or build steps.
+2. In the source repo, confirm the dispatch job succeeded and targeted `bigpods-cd.yml`.
+3. In infra, confirm a `bigpods-cd.yml` run started with event `workflow_dispatch` or `push`.
+4. Confirm image build logs show the expected pod image tags.
+5. Confirm staging or production bootstrap manifests were updated during the deploy job.
+6. Confirm rollout or Kubernetes apply steps completed without fallback warnings.
+7. Confirm the staging endpoint or health endpoint reflects the new deployment.
 
 ## Troubleshooting
 
-### Deployment not showing in Jira
+### Dispatch succeeds but deployed code is not the expected source commit
 
-**Fix**: Ensure commit message includes Jira issue key
-```bash
-git commit -m "DR-123: Add feature"  # ✅ Good
-git commit -m "Add feature"           # ❌ Won't link to Jira
-```
+Check the current `bigpods-cd.yml` clone behavior.
+It clones remote frontend/services default branches rather than checking out a source SHA passed by dispatch.
 
-### DISPATCH_TOKEN error
+### Deployment did not start from frontend or services
 
-**Fix**: Create PAT with `repo` and `workflow` scopes
-```
-GitHub → Settings → Developer settings → Personal access tokens
-```
+Check:
+- event was `push`
+- branch was `main`
+- `DISPATCH_TOKEN` is configured
+- the source workflow did not skip because of `skip_reason`
 
-### Environment approval not working
+### Tests are green but you suspect a soft pass
 
-**Fix**: Configure environment protection rules
-```
-Repository → Settings → Environments → [environment] → Required reviewers
-```
+Check the actual logs in `dreamscape-tests/.github/workflows/branch-testing.yml`.
+Some test steps may still use non-blocking patterns in the current implementation.
 
-## Best Practices
+### `check` fails locally
 
-### 1. Always include Jira issue keys
+`check` validates:
+- local infra workflow files
+- remote workflow files via `gh`
 
-```bash
-git commit -m "DR-123: feat(auth): add OAuth2"
-```
+If local infra files are present but remote checks fail:
+- confirm `gh auth status`
+- confirm the target repositories exist under `DREAMSCAPE-AI`
 
-### 2. Test in dev first
+## Legacy Files
 
-```bash
-feature/** → dev → develop → main → staging (auto) → production (manual)
-```
+These files are retained only as historical context for the removed architecture:
 
-### 3. Use semantic commits
+- `UNIFIED_CICD_VALIDATION.md`
+- `docs/CICD_SETUP.md`
+- `docs/MIGRATION_GUIDE.md`
+- `docs/REPOSITORY-DISPATCH-SETUP.md`
+- `docs/REPOSITORY-DISPATCH-TESTING.md`
+- `docs/CI-CD-PIPELINE.md`
 
-```bash
-feat(service): description   # New feature
-fix(service): description    # Bug fix
-chore(service): description  # Maintenance
-```
+Do not use them as the implementation reference for current behavior.
 
-### 4. Monitor deployments
+## Current Risks and Follow-Ups
 
-- Check GitHub Actions for pipeline status
-- Check Jira for deployment tracking
-- Set up Slack notifications
-
-## Documentation
-
-- **[CICD_SETUP.md](docs/CICD_SETUP.md)** - Complete setup guide
-- **[MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)** - Migration from old workflows
-
-## Support
-
-For issues or questions:
-
-1. Check workflow logs in GitHub Actions
-2. Review documentation in `docs/`
-3. Contact DevOps team
-4. Create issue in `dreamscape-infra` repository
-
-## What's Different from Old Workflows
-
-| Feature | Old | New |
-|---------|-----|-----|
-| **GitHub Deployments** | ❌ No | ✅ Yes |
-| **Jira Integration** | ❌ No | ✅ Automatic |
-| **Environment Protection** | ❌ No | ✅ Yes |
-| **Approval Workflow** | ❌ No | ✅ Yes |
-| **Deployment Tracking** | ❌ Commit status only | ✅ Full deployment tracking |
-| **Number of Workflows** | 5+ fragmented | 1 unified |
-| **Lines of Code** | ~1500+ | ~1100 |
-| **Jira Updates** | ❌ Manual | ✅ Automatic |
-
-## Next Steps
-
-1. ✅ Read `docs/CICD_SETUP.md`
-2. ✅ Configure GitHub environments
-3. ✅ Add repository secrets
-4. ✅ Setup Jira integration
-5. ✅ Test with dev deployment
-6. ✅ Test with staging deployment
-7. ✅ Test with production deployment
-8. ✅ Train team on new workflow
-9. ✅ Delete old workflows
-
----
-
-**Created**: 2025-11-27
-**Last Updated**: 2025-11-27
-**Version**: 1.0.0
-**Status**: Production Ready
+- `dreamscape-services` still has two CI workflows, which can create duplicated CI activity.
+- `dreamscape-tests` still deserves stricter failure semantics in some jobs if you want to eliminate soft-pass cases.
+- `bigpods-cd.yml` still lacks strict source SHA pinning for frontend/services dependency clones.
+- legacy workflow references have been cleaned from operational docs and helper scripts, but archived docs remain for history.
