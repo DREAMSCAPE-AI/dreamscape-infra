@@ -1,7 +1,15 @@
-# Legacy Note
+# Legacy note - unified CI/CD validation
 
-This document is archived.
+This file is kept only as an archive marker.
 
-It describes the old architecture based on `repository_dispatch` and `unified-cicd.yml`, which is no longer the active deployment path.
+The legacy `unified-cicd.yml` workflow is no longer active.
+The current CI/CD documentation has moved to the documentation repository:
 
-Use `CICD_README.md` as the current source of truth.
+- `dreamscape-docs/infrastructure/cicd/bigpods-cicd.md`
+- `dreamscape-docs/guides/setup/CICD_SETUP.md`
+
+For current runtime behavior, refer to:
+
+- `dreamscape-infra/.github/workflows/bigpods-cd.yml`
+- `dreamscape-infra/scripts/QUICK_DEPLOY_COMMANDS.sh`
+- `dreamscape-infra/scripts/setup-dispatch-architecture.sh`
