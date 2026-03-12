@@ -316,6 +316,8 @@ spec:
               value: whsec_your_webhook_secret_here
             - name: FRONTEND_URL
               value: http://79.72.27.180
+            - name: VITE_AUTH_SERVICE_URL
+              value: http://auth-service:3001/api
 ---
 apiVersion: v1
 kind: Service
