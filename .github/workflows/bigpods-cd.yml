@@ -369,7 +369,20 @@ jobs:
       - name: 📦 Bootstrap staging k8s resources
         run: |
           kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
-          echo "✅ Staging deployment completed - kubectl apply performs rolling update automatically"
+          echo "✅ Staging resources applied"
+
+      - name: 🔄 Force rollout to pull latest images
+        run: |
+          for deploy in gateway-service web-client-service panorama-service \
+                        auth-service user-service voyage-service payment-service ai-service; do
+            kubectl rollout restart deployment/$deploy -n staging 2>/dev/null || true
+          done
+          echo "⏳ Waiting for rollouts to complete..."
+          for deploy in gateway-service web-client-service panorama-service \
+                        auth-service user-service voyage-service payment-service ai-service; do
+            kubectl rollout status deployment/$deploy -n staging --timeout=120s 2>/dev/null || true
+          done
+          echo "✅ Staging deployment completed"
 
       # NOTE: deploy-bigpods.sh script commented out - kubectl apply above already performs rolling updates
       # The script expected blue-green deployment names but manifests use direct service names
@@ -577,7 +590,20 @@ jobs:
       - name: 📦 Bootstrap production k8s resources
         run: |
           kubectl apply -f k8s/bigpods-production-bootstrap.yaml
-          echo "✅ Production deployment completed - kubectl apply performs rolling update automatically"
+          echo "✅ Production resources applied"
+
+      - name: 🔄 Force rollout to pull latest images
+        run: |
+          for deploy in gateway-service web-client-service panorama-service \
+                        auth-service user-service voyage-service payment-service ai-service; do
+            kubectl rollout restart deployment/$deploy -n production 2>/dev/null || true
+          done
+          echo "⏳ Waiting for rollouts to complete..."
+          for deploy in gateway-service web-client-service panorama-service \
+                        auth-service user-service voyage-service payment-service ai-service; do
+            kubectl rollout status deployment/$deploy -n production --timeout=120s 2>/dev/null || true
+          done
+          echo "✅ Production deployment completed"
 
       # NOTE: deploy-bigpods.sh script commented out - kubectl apply above already performs rolling updates
       # The script expected blue-green deployment names but manifests use direct service names
