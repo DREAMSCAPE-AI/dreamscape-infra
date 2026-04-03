@@ -63,6 +63,61 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── VR Sessions (DR-574): PIN-based VR access ───
+// Must be BEFORE the proxy to handle locally (not proxied to another service)
+const vrSessions = new Map();
+const VR_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function generateVRPin() {
+  let pin, attempts = 0;
+  do {
+    pin = Math.floor(100000 + Math.random() * 900000).toString();
+    attempts++;
+    if (attempts > 100) {
+      const now = Date.now();
+      for (const [k, v] of vrSessions.entries()) { if (now > v.expiresAt) vrSessions.delete(k); }
+      attempts = 0;
+    }
+  } while (vrSessions.has(pin));
+  return pin;
+}
+
+function purgeExpiredVR() {
+  const now = Date.now();
+  for (const [k, v] of vrSessions.entries()) { if (now > v.expiresAt) vrSessions.delete(k); }
+}
+
+setInterval(purgeExpiredVR, 2 * 60 * 1000);
+
+app.post('/api/v1/vr/sessions', express.json(), (req, res) => {
+  const { destination } = req.body;
+  if (!destination || typeof destination !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing or invalid "destination" field' });
+  }
+  purgeExpiredVR();
+  const pin = generateVRPin();
+  const now = Date.now();
+  const expiresAt = now + VR_SESSION_TTL_MS;
+  const dest = destination.toLowerCase().trim();
+  vrSessions.set(pin, { pin, destination: dest, createdAt: now, expiresAt, used: false });
+  console.log(`🔑 VR Session created: PIN ${pin} → ${dest} (expires in 10min)`);
+  return res.status(201).json({ success: true, data: { pin, destination: dest, expiresAt } });
+});
+
+app.get('/api/v1/vr/sessions/:pin', (req, res) => {
+  const { pin } = req.params;
+  if (!pin || !/^\d{6}$/.test(pin)) {
+    return res.status(400).json({ success: false, error: 'Invalid PIN format. Must be 6 digits.' });
+  }
+  const session = vrSessions.get(pin);
+  if (!session) return res.status(404).json({ success: false, error: 'PIN not found or expired' });
+  if (Date.now() > session.expiresAt) { vrSessions.delete(pin); return res.status(410).json({ success: false, error: 'PIN has expired' }); }
+  if (session.used) return res.status(409).json({ success: false, error: 'PIN has already been used' });
+  session.used = true;
+  console.log(`✅ VR Session validated: PIN ${pin} → ${session.destination}`);
+  return res.status(200).json({ success: true, data: { destination: session.destination, autoVR: true } });
+});
+
 // API Proxy - MUST be BEFORE body parsers to access raw body stream
 // Mount on root / to preserve full paths
 const apiProxy = createProxyMiddleware({
@@ -134,7 +189,6 @@ app.use(apiProxy);
 // Body parsers - AFTER proxy to avoid consuming body stream
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
