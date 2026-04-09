@@ -366,6 +366,14 @@ jobs:
           echo "📋 Updated images:"
           grep "image: ghcr.io/dreamscape-ai/" k8s/bigpods-staging-bootstrap.yaml | sort | uniq
 
+      - name: 🔐 Apply cert-manager issuers (self-signed CA)
+        run: |
+          kubectl create namespace infra --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/base/common/selfsigned-issuer.yaml
+          echo "⏳ Waiting for dreamscape-ca-issuer to be ready..."
+          kubectl wait clusterissuer/dreamscape-ca-issuer --for=condition=Ready --timeout=60s
+          echo "✅ Cert-manager issuers applied"
+
       - name: 📦 Bootstrap staging k8s resources
         run: |
           kubectl apply -f k8s/bigpods-staging-bootstrap.yaml
@@ -586,6 +594,14 @@ jobs:
           # Show what changed
           echo "📋 Updated images:"
           grep "image: ghcr.io/dreamscape-ai/" k8s/bigpods-production-bootstrap.yaml | sort | uniq
+
+      - name: 🔐 Apply cert-manager issuers (self-signed CA)
+        run: |
+          kubectl create namespace infra --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/base/common/selfsigned-issuer.yaml
+          echo "⏳ Waiting for dreamscape-ca-issuer to be ready..."
+          kubectl wait clusterissuer/dreamscape-ca-issuer --for=condition=Ready --timeout=60s
+          echo "✅ Cert-manager issuers applied"
 
       - name: 📦 Bootstrap production k8s resources
         run: |
