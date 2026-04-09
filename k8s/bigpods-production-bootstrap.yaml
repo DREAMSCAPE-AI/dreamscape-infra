@@ -130,9 +130,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: CORS_ORIGIN
-              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://84.235.237.183.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -202,9 +202,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: CORS_ORIGIN
-              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://84.235.237.183.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -294,9 +294,9 @@ spec:
             - name: S3_SECRET_KEY
               value: minioadmin123
             - name: CLIENT_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: CORS_ORIGIN
-              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://84.235.237.183.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -312,7 +312,7 @@ spec:
             - name: STRIPE_WEBHOOK_SECRET
               value: whsec_your_webhook_secret_here
             - name: FRONTEND_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: VITE_AUTH_SERVICE_URL
               value: http://auth-service:3001/api
 ---
@@ -389,7 +389,7 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: FRONTEND_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: STRIPE_SECRET_KEY
               value: sk_test_51Sho6P0R70uj0yvKcE36PafzAKy2cAOCAJ2wFvi2O8zVJoGCJtoRD15BV6iZXBgz2RL98vyvBU0wIa5Abzp2KaNw00E3MuWunl
             - name: STRIPE_PUBLISHABLE_KEY
@@ -461,9 +461,9 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
-              value: http://84.235.237.183
+              value: https://84.235.237.183.nip.io
             - name: CORS_ORIGIN
-              value: http://84.235.237.183,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://84.235.237.183.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -614,15 +614,19 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "dreamscape-ca-issuer"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - 84.235.237.183.nip.io
+      secretName: production-tls-secret
   rules:
-    - http:
+    - host: 84.235.237.183.nip.io
+      http:
         paths:
           - path: /api
             pathType: Prefix
