@@ -614,20 +614,6 @@ spec:
     - port: 80
       targetPort: 80
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-client-loadbalancer
-  namespace: staging
-spec:
-  type: LoadBalancer
-  selector:
-    app: web-client-service
-  ports:
-    - port: 80
-      targetPort: 80
-      protocol: TCP
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -641,8 +627,8 @@ metadata:
       proxy_set_header Connection "upgrade";
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    cert-manager.io/cluster-issuer: "dreamscape-ca-issuer"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
   tls:
