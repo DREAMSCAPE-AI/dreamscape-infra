@@ -131,9 +131,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://79.72.27.180
+              value: https://79.72.27.180.nip.io
             - name: CORS_ORIGIN
-              value: http://79.72.27.180,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://79.72.27.180.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -204,9 +204,9 @@ spec:
             - name: JWT_REFRESH_SECRET
               value: dev-jwt-secret
             - name: CLIENT_URL
-              value: http://79.72.27.180
+              value: https://79.72.27.180.nip.io
             - name: CORS_ORIGIN
-              value: http://79.72.27.180,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://79.72.27.180.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -297,9 +297,9 @@ spec:
             - name: S3_SECRET_KEY
               value: minioadmin123
             - name: CLIENT_URL
-              value: http://79.72.27.180
+              value: https://79.72.27.180.nip.io
             - name: CORS_ORIGIN
-              value: http://79.72.27.180,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://79.72.27.180.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -315,7 +315,7 @@ spec:
             - name: STRIPE_WEBHOOK_SECRET
               value: whsec_your_webhook_secret_here
             - name: FRONTEND_URL
-              value: http://79.72.27.180
+              value: https://79.72.27.180.nip.io
             - name: VITE_AUTH_SERVICE_URL
               value: http://auth-service:3001/api
 ---
@@ -466,9 +466,9 @@ spec:
             - name: REDIS_URL
               value: redis://:redis_staging_password_123@dreamscape-redis:6379
             - name: CLIENT_URL
-              value: http://79.72.27.180
+              value: https://79.72.27.180.nip.io
             - name: CORS_ORIGIN
-              value: http://79.72.27.180,http://localhost,http://localhost:5173,http://localhost:80
+              value: https://79.72.27.180.nip.io,http://localhost,http://localhost:5173,http://localhost:80
             - name: AMADEUS_API_KEY
               value: SOZ0PgnslgPYBmlegciHrecu8GqQOmqo
             - name: AMADEUS_API_SECRET
@@ -641,10 +641,17 @@ metadata:
       proxy_set_header Connection "upgrade";
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    cert-manager.io/cluster-issuer: "dreamscape-ca-issuer"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - 79.72.27.180.nip.io
+      secretName: staging-tls-secret
   rules:
-    - http:
+    - host: 79.72.27.180.nip.io
+      http:
         paths:
           - path: /api
             pathType: Prefix
