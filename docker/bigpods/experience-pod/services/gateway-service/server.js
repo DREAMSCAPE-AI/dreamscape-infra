@@ -142,7 +142,7 @@ const apiProxy = createProxyMiddleware({
         req.path.startsWith('/api/v1/airlines') || req.path.startsWith('/api/airlines') ||
         req.path.startsWith('/api/v1/airports') || req.path.startsWith('/api/airports')) return VOYAGE_SERVICE_URL;
     if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') ||
-        req.path.startsWith('/api/recommendations')) return AI_SERVICE_URL;
+        req.path.startsWith('/api/v1/recommendations') || req.path.startsWith('/api/recommendations')) return AI_SERVICE_URL;
     if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) return PAYMENT_SERVICE_URL;
     if (req.path.startsWith('/api/vr')) return PANORAMA_SERVICE_URL;
     if (req.path.startsWith('/api/analytics')) return USER_SERVICE_URL; // Analytics go to user service
