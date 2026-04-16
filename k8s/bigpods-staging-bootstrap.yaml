@@ -475,6 +475,10 @@ spec:
               value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: VITE_USER_SERVICE_URL
+              value: http://dreamscape-user-service:3002
+            - name: VITE_VOYAGE_SERVICE_URL
+              value: http://dreamscape-voyage-service:3003
 ---
 apiVersion: v1
 kind: Service
