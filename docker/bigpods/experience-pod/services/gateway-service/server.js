@@ -168,7 +168,7 @@ const apiProxy = createProxyMiddleware({
              req.path.startsWith('/api/v1/transfers') || req.path.startsWith('/api/transfers') ||
              req.path.startsWith('/api/v1/airlines') || req.path.startsWith('/api/airlines') ||
              req.path.startsWith('/api/v1/airports') || req.path.startsWith('/api/airports')) target = VOYAGE_SERVICE_URL;
-    else if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') || req.path.startsWith('/api/recommendations')) target = AI_SERVICE_URL;
+    else if (req.path.startsWith('/api/v1/ai') || req.path.startsWith('/api/ai') || req.path.startsWith('/api/v1/recommendations') || req.path.startsWith('/api/recommendations')) target = AI_SERVICE_URL;
     else if (req.path.startsWith('/api/v1/payment') || req.path.startsWith('/api/payment')) target = PAYMENT_SERVICE_URL;
     else if (req.path.startsWith('/api/vr')) target = PANORAMA_SERVICE_URL;
     console.log(`[HPM] Proxying ${req.method} ${req.originalUrl} -> ${target}${proxyReq.path}`);
