@@ -303,6 +303,8 @@ spec:
               value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: DUFFEL_API_TOKEN
+              value: duffel_test__NT_0qSJgTQyVL6VlDLoGubhr5JNFCIk2COTGy1keZZ
             - name: PAYMENT_SERVICE_URL
               value: http://dreamscape-payment-service:3004
             - name: STRIPE_SECRET_KEY
@@ -402,6 +404,8 @@ spec:
               value: wKeJSHOvcfeiZOw3
             - name: AMADEUS_BASE_URL
               value: https://test.api.amadeus.com
+            - name: DUFFEL_API_TOKEN
+              value: duffel_test__NT_0qSJgTQyVL6VlDLoGubhr5JNFCIk2COTGy1keZZ
             - name: PAYMENT_SERVICE_URL
               value: http://dreamscape-payment-service:3004
 ---
