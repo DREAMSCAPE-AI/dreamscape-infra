@@ -1,7 +1,7 @@
 # ============================================================================
 # DreamScape Experience Pod - Production Dockerfile
-# Multi-process container: Web Client + Panorama (stub) + Gateway (stub)
-# Architecture: React build + NGINX static serving + Node.js services
+# Multi-process container: Web Client + Panorama + Gateway
+# Architecture: React builds + NGINX static serving + Node.js services
 # ============================================================================
 
 # =============================================================================
@@ -21,12 +21,32 @@ RUN npm install --ignore-scripts && npm cache clean --force
 
 COPY dreamscape-frontend/web-client ./
 
+# Inject production env variables into the Vite build (same pattern as staging)
+COPY dreamscape-infra/docker/bigpods/experience-pod/.env.prod .env.production
+
 ENV NODE_ENV=production
 
 RUN npm run build -- --mode ${BUILD_MODE}
 
 # =============================================================================
-# Stage 2: Production Image
+# Stage 2: Build Panorama VR App (React/CRA + Three.js)
+# =============================================================================
+FROM node:20-alpine AS panorama-builder
+
+WORKDIR /build/panorama
+
+COPY dreamscape-frontend/panorama/package*.json ./
+RUN npm install --ignore-scripts && npm cache clean --force
+
+COPY dreamscape-frontend/panorama ./
+
+ENV NODE_ENV=production
+ENV PUBLIC_URL=/panorama
+
+RUN npm run build
+
+# =============================================================================
+# Stage 3: Production Image
 # =============================================================================
 FROM node:20-alpine AS production
 
@@ -66,7 +86,10 @@ RUN chown -R nodejs:nodejs /app && \
 # Copy built web client to nginx serve directory
 COPY --from=web-builder --chown=nginx:nginx /build/web/dist /usr/share/nginx/html
 
-# Copy Panorama service (JavaScript stub from bigpods)
+# Copy built Panorama VR app to nginx serve directory (served at /panorama/)
+COPY --from=panorama-builder --chown=nginx:nginx /build/panorama/build /usr/share/nginx/html/panorama
+
+# Copy Panorama API service (VR catalog/metadata endpoints)
 COPY --chown=nodejs:nodejs dreamscape-infra/docker/bigpods/experience-pod/services/panorama-service/ /app/panorama/
 
 # Copy Gateway service (JavaScript stub from bigpods)
@@ -117,6 +140,6 @@ CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
 # Metadata labels
 LABEL maintainer="DreamScape Team <dev@dreamscape.com>" \
       version="1.0.0" \
-      description="DreamScape Experience Pod - Web Client + Gateway + Panorama (stubs)" \
+      description="DreamScape Experience Pod - Web Client + Panorama VR + Gateway" \
       org.opencontainers.image.title="DreamScape Experience Pod" \
       org.opencontainers.image.vendor="DreamScape"
