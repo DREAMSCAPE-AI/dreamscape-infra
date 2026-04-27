@@ -628,7 +628,7 @@ jobs:
           pods=("core" "business" "experience")
 
           for pod in "${pods[@]}"; do
-            image="ghcr.io/dreamscape/${pod}-pod:${version}"
+            image="${{ env.REGISTRY_URL }}/${{ env.REGISTRY_NAMESPACE }}/${pod}-pod:${version}"
             echo "🔍 Validating image: $image"
 
             if docker manifest inspect "$image" >/dev/null 2>&1; then
@@ -643,6 +643,7 @@ jobs:
         working-directory: scripts/bigpods
         run: |
           echo "🧪 Running release smoke tests..."
+          chmod +x *.sh
 
           # Test core functionality
           ./build-bigpods.sh --help >/dev/null
